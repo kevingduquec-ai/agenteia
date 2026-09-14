@@ -1,0 +1,106 @@
+# Stack de producción completo (ver docs/DEPLOYMENT.md) — un solo VPS con
+# Docker Compose: Postgres/pgvector, Redis, la API, el frontend/widget y
+# nginx como proxy inverso + terminación TLS. `worker` no corre como
+# servicio permanente (ver apps/worker/Dockerfile): se invoca puntualmente
+# con `docker compose -f docker-compose.prod.yml run --rm worker ...`.
+#
+# Uso:
+#   docker compose -f docker-compose.prod.yml --env-file .env up -d --build
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: prefiero-ia-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: prefiero
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?fija POSTGRES_PASSWORD en .env antes de producción}
+      POSTGRES_DB: prefiero_ia
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/postgres/init:/docker-entrypoint-initdb.d
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U prefiero -d prefiero_ia"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    # Sin puertos publicados al host: solo la API y el worker (misma red
+    # docker) necesitan hablarle a Postgres.
+
+  redis:
+    image: redis:7-alpine
+    container_name: prefiero-ia-redis
+    restart: unless-stopped
+    volumes:
+      - redis_data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  api:
+    build:
+      context: .
+      dockerfile: apps/api/Dockerfile
+    container_name: prefiero-ia-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://prefiero:${POSTGRES_PASSWORD}@postgres:5432/prefiero_ia
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  web:
+    build:
+      context: .
+      dockerfile: apps/web/Dockerfile
+      args:
+        # Debe ser el dominio PUBLICO de la API (https://api.tu-dominio.com)
+        # — se hornea en el bundle en build time, ver apps/web/Dockerfile.
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:?fija NEXT_PUBLIC_API_URL en .env antes de construir}
+    container_name: prefiero-ia-web
+    restart: unless-stopped
+    depends_on:
+      - api
+
+  worker:
+    build:
+      context: .
+      dockerfile: apps/worker/Dockerfile
+    container_name: prefiero-ia-worker
+    env_file: .env
+    environment:
+      DATABASE_URL: postgresql://prefiero:${POSTGRES_PASSWORD}@postgres:5432/prefiero_ia
+      REDIS_URL: redis://redis:6379
+    depends_on:
+      postgres:
+        condition: service_healthy
+    # Sin "restart" a proposito: este servicio no se levanta con `up`, solo
+    # se invoca bajo demanda con `run --rm worker pnpm run <comando>`.
+    profiles: ["tools"]
+
+  nginx:
+    image: nginx:1.27-alpine
+    container_name: prefiero-ia-nginx
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./infrastructure/nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./infrastructure/nginx/webroot:/var/www/certbot:ro
+      # Certbot corre en el HOST (no en un contenedor, ver
+      # docs/DEPLOYMENT.md) y deja los certificados en la ruta estandar de
+      # Let's Encrypt — se monta tal cual, de solo lectura.
+      - /etc/letsencrypt:/etc/letsencrypt:ro
+    depends_on:
+      - api
+      - web
+
+volumes:
+  postgres_data:
+  redis_data:

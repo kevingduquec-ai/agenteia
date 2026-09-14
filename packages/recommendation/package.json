@@ -1,0 +1,20 @@
+{
+  "name": "@prefiero-ia/recommendation",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Motor de recomendacion (scoring deterministico)",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prefiero-ia/catalog": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,199 @@
+import { getPool } from '../pool.js';
+import { slugify } from '../slugify.js';
+import type { CategoryPathSegment, ProductUpsertInput, UpsertProductResult } from '../types.js';
+
+export async function upsertBrand(name: string): Promise<string> {
+  const pool = getPool();
+  const slug = slugify(name);
+  const result = await pool.query<{ id: string }>(
+    `INSERT INTO brands (name, slug) VALUES ($1, $2)
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`,
+    [name, slug],
+  );
+  return result.rows[0].id;
+}
+
+export async function upsertSeller(name: string, slug: string): Promise<string> {
+  const pool = getPool();
+  const result = await pool.query<{ id: string }>(
+    `INSERT INTO sellers (name, slug) VALUES ($1, $2)
+     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+     RETURNING id`,
+    [name, slug || slugify(name)],
+  );
+  return result.rows[0].id;
+}
+
+/**
+ * Crea (o reutiliza) la cadena completa de categorias de un breadcrumb,
+ * usando la ruta acumulada como slug unico para no chocar entre categorias
+ * de distinto padre que comparten nombre de hoja.
+ */
+export async function upsertCategoryPath(segments: CategoryPathSegment[]): Promise<string | null> {
+  if (segments.length === 0) {
+    return null;
+  }
+
+  const pool = getPool();
+  let parentId: string | null = null;
+  let cumulativeSlug = '';
+  let leafId: string | null = null;
+
+  for (const segment of segments) {
+    cumulativeSlug = cumulativeSlug ? `${cumulativeSlug}/${segment.slug}` : segment.slug;
+    const result: { rows: { id: string }[] } = await pool.query(
+      `INSERT INTO categories (name, slug, parent_id) VALUES ($1, $2, $3)
+       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, parent_id = EXCLUDED.parent_id
+       RETURNING id`,
+      [segment.name, cumulativeSlug, parentId],
+    );
+    const newLeafId: string = result.rows[0].id;
+    leafId = newLeafId;
+    parentId = newLeafId;
+  }
+
+  return leafId;
+}
+
+export async function upsertProduct(input: ProductUpsertInput): Promise<UpsertProductResult> {
+  const pool = getPool();
+  const existing = await pool.query<{ id: string; content_hash: string | null }>(
+    'SELECT id, content_hash FROM products WHERE external_id = $1',
+    [input.externalId],
+  );
+
+  const now = new Date();
+
+  if (existing.rows.length === 0) {
+    const insert = await pool.query<{ id: string }>(
+      `INSERT INTO products (
+         external_id, name, slug, description, url, image_url,
+         brand_id, category_id, seller_id,
+         price, original_price, discount_percentage,
+         installment_value, installment_count, currency,
+         content_hash, last_seen_at, last_scraped_at
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)
+       RETURNING id`,
+      [
+        input.externalId,
+        input.name,
+        input.slug,
+        input.description,
+        input.url,
+        input.imageUrl,
+        input.brandId,
+        input.categoryId,
+        input.sellerId,
+        input.price,
+        input.originalPrice,
+        input.discountPercentage,
+        input.installmentValue,
+        input.installmentCount,
+        input.currency,
+        input.contentHash,
+        now,
+      ],
+    );
+    const id = insert.rows[0].id;
+    await insertPriceHistory(id, input);
+    return { id, status: 'created' };
+  }
+
+  const productId = existing.rows[0].id;
+  const changed = existing.rows[0].content_hash !== input.contentHash;
+
+  if (changed) {
+    await pool.query(
+      `UPDATE products SET
+         name = $2, description = $3, url = $4, image_url = $5,
+         brand_id = $6, category_id = $7, seller_id = $8,
+         price = $9, original_price = $10, discount_percentage = $11,
+         installment_value = $12, installment_count = $13, currency = $14,
+         content_hash = $15, last_seen_at = $16, last_scraped_at = $16, updated_at = $16,
+         is_active = true
+       WHERE id = $1`,
+      [
+        productId,
+        input.name,
+        input.description,
+        input.url,
+        input.imageUrl,
+        input.brandId,
+        input.categoryId,
+        input.sellerId,
+        input.price,
+        input.originalPrice,
+        input.discountPercentage,
+        input.installmentValue,
+        input.installmentCount,
+        input.currency,
+        input.contentHash,
+        now,
+      ],
+    );
+    await insertPriceHistory(productId, input);
+  } else {
+    // Aunque el contenido no cambio, si se pudo re-scrapear con exito es
+    // prueba de que sigue existiendo — reactiva si venia de un ciclo
+    // anterior donde `markStaleProductsInactive` lo marco como descontinuado.
+    await pool.query('UPDATE products SET last_seen_at = $2, last_scraped_at = $2, is_active = true WHERE id = $1', [
+      productId,
+      now,
+    ]);
+  }
+
+  return { id: productId, status: changed ? 'updated' : 'unchanged' };
+}
+
+/**
+ * Segunda pasada del crawler (ver apps/worker/src/crawler/listing-parser.ts):
+ * completa la cuota ACR que la ficha individual del producto deja en null
+ * (se calcula client-side ahi) usando lo que si trae ya calculado la
+ * tarjeta de una pagina de listado/categoria. Solo toca esas dos columnas
+ * — nunca reescribe nombre/precio/categoria, que ya mantiene al dia la
+ * cosecha normal (`upsertProduct`).
+ */
+export async function updateInstallmentBySku(sku: string, installmentValue: number, installmentCount: number): Promise<boolean> {
+  const pool = getPool();
+  const result = await pool.query(
+    `UPDATE products SET installment_value = $2, installment_count = $3, updated_at = now()
+     WHERE external_id = $1`,
+    [sku, installmentValue, installmentCount],
+  );
+  return (result.rowCount ?? 0) > 0;
+}
+
+/** Slugs de categoria ya conocidos (de la cosecha de productos) — son las paginas de listado que la segunda pasada visita para completar la cuota. */
+export async function listCategorySlugs(): Promise<string[]> {
+  const pool = getPool();
+  const result = await pool.query<{ slug: string }>('SELECT slug FROM categories ORDER BY slug');
+  return result.rows.map((row) => row.slug);
+}
+
+async function insertPriceHistory(productId: string, input: ProductUpsertInput): Promise<void> {
+  const pool = getPool();
+  await pool.query(
+    `INSERT INTO product_price_history (product_id, price, original_price, installment_value)
+     VALUES ($1, $2, $3, $4)`,
+    [productId, input.price, input.originalPrice, input.installmentValue],
+  );
+}
+
+/**
+ * El catalogo real cambia todo el tiempo: un producto que ya no aparece en
+ * una cosecha completa (no se le toco `last_seen_at`) probablemente fue
+ * descontinuado o retirado del sitio. Sin este paso, `products.is_active`
+ * se queda pegado en `true` para siempre y el catalogo local se desincroniza
+ * silenciosamente del real. Solo debe llamarse tras una cosecha SIN limite
+ * (`--limit` deja fuera la mayoria del catalogo a proposito, marcarlo como
+ * "desaparecido" seria un falso positivo masivo).
+ */
+export async function markStaleProductsInactive(seenBefore: Date): Promise<number> {
+  const pool = getPool();
+  const result = await pool.query(
+    'UPDATE products SET is_active = false WHERE is_active AND last_seen_at < $1',
+    [seenBefore],
+  );
+  return result.rowCount ?? 0;
+}

@@ -1,0 +1,23 @@
+{
+  "name": "@prefiero-ia/agent-core",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Intent router, agent engine y tool registry",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prefiero-ia/catalog": "workspace:*",
+    "@prefiero-ia/database": "workspace:*",
+    "@prefiero-ia/llm": "workspace:*",
+    "@prefiero-ia/recommendation": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

@@ -1,0 +1,80 @@
+# Copiar este archivo a "prefi.conf" (mismo directorio) y reemplazar
+# APP_DOMAIN / API_DOMAIN por los dominios reales antes de arrancar nginx.
+# Ver docs/DEPLOYMENT.md, paso "Nginx + HTTPS" — el certificado de
+# Let's Encrypt debe existir ANTES de habilitar los bloques 443 de abajo
+# (por eso el bloque 80 sirve /.well-known/acme-challenge/ desde el mismo
+# webroot que usa certbot para validar el dominio).
+
+# ---------- app.APP_DOMAIN — Next.js (embed.js, /widget, /admin) ----------
+server {
+    listen 80;
+    server_name APP_DOMAIN;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name APP_DOMAIN;
+
+    ssl_certificate     /etc/letsencrypt/live/APP_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/APP_DOMAIN/privkey.pem;
+
+    location / {
+        proxy_pass http://web:3000;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        # /widget se sirve dentro de un <iframe> embebido en sitios
+        # externos (ver apps/web/public/embed.js) — nunca bloquear el
+        # framing con X-Frame-Options aqui.
+    }
+}
+
+# ---------- api.API_DOMAIN — NestJS (chat, /admin/*, /llm/*) ----------
+server {
+    listen 80;
+    server_name API_DOMAIN;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        return 301 https://$host$request_uri;
+    }
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name API_DOMAIN;
+
+    ssl_certificate     /etc/letsencrypt/live/API_DOMAIN/fullchain.pem;
+    ssl_certificate_key /etc/letsencrypt/live/API_DOMAIN/privkey.pem;
+
+    # POST /chat/stream usa Server-Sent Events — sin esto nginx bufferea
+    # la respuesta completa antes de enviarla y el streaming real deja de
+    # sentirse como streaming (llega todo de golpe al final).
+    proxy_buffering off;
+
+    location / {
+        proxy_pass http://api:3001;
+        proxy_http_version 1.1;
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_set_header Connection '';
+        chunked_transfer_encoding off;
+    }
+}

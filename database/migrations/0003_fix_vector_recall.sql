@@ -1,0 +1,15 @@
+-- Prefiero IA — corrige la baja precision (recall) de la busqueda semantica
+--
+-- El indice ivfflat de 0002 se creo con "lists = 100" pensando en un
+-- catalogo de conocimiento grande, pero con solo un puñado de chunks (78 al
+-- momento de este fix) ese indice aproximado hace mas mal que bien: con
+-- pocas filas por "lista" y el default de ivfflat.probes = 1, la busqueda
+-- solo revisa una fraccion minima del espacio y puede saltarse el
+-- resultado correcto (verificado en vivo: para "¿cuánto tarda el envío?"
+-- devolvia un chunk de privacidad de datos antes que el de tiempos de
+-- entrega, con el chunk correcto). Un scan secuencial exacto es igual de
+-- rapido con este volumen y siempre encuentra el vecino mas cercano real.
+--
+-- Reactivar un indice aproximado (ivfflat con lists ~ filas/1000, o hnsw)
+-- solo cuando knowledge_chunks crezca a varios miles de filas.
+DROP INDEX IF EXISTS idx_knowledge_embeddings_vector;

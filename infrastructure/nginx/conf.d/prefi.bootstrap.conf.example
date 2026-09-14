@@ -1,0 +1,37 @@
+# Config TEMPORAL solo para el primer arranque (ver docs/DEPLOYMENT.md,
+# paso "Nginx + HTTPS"): nginx no puede arrancar con el conf.d "prefi.conf"
+# normal porque ese archivo apunta a certificados que todavia no existen.
+# Se usa esta version HTTP-only para que certbot pueda validar el dominio
+# via webroot, y despues se reemplaza por "prefi.conf" (el de verdad, con
+# HTTPS) para el resto de la vida del servidor.
+#
+# Uso: copiar a "prefi.conf" (sobrescribiendo), reemplazar APP_DOMAIN /
+# API_DOMAIN, levantar nginx, correr certbot, y DESPUES copiar el
+# "prefi.conf.example" real (con HTTPS) encima de este.
+server {
+    listen 80;
+    server_name APP_DOMAIN;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        proxy_pass http://web:3000;
+        proxy_set_header Host $host;
+    }
+}
+
+server {
+    listen 80;
+    server_name API_DOMAIN;
+
+    location /.well-known/acme-challenge/ {
+        root /var/www/certbot;
+    }
+
+    location / {
+        proxy_pass http://api:3001;
+        proxy_set_header Host $host;
+    }
+}

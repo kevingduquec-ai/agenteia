@@ -1,0 +1,20 @@
+{
+  "name": "@prefiero-ia/llm",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "LLM Gateway (Qwen / DeepSeek) — interfaz LLMProvider",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "openai": "^4.104.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

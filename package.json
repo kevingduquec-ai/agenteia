@@ -1,0 +1,27 @@
+{
+  "name": "prefiero-ia",
+  "private": true,
+  "version": "0.1.0",
+  "packageManager": "pnpm@11.25.0",
+  "scripts": {
+    "build:llm": "pnpm --filter @prefiero-ia/llm build",
+    "build:database": "pnpm --filter @prefiero-ia/database build",
+    "build:catalog": "pnpm --filter @prefiero-ia/catalog build",
+    "build:recommendation": "pnpm --filter @prefiero-ia/recommendation build",
+    "build:rag": "pnpm --filter @prefiero-ia/rag build",
+    "build:agent-core": "pnpm --filter @prefiero-ia/agent-core build",
+    "build:core": "pnpm run build:database && pnpm run build:llm && pnpm run build:catalog && pnpm run build:recommendation && pnpm run build:rag && pnpm run build:agent-core",
+    "predev:api": "pnpm run build:core",
+    "preharvest": "pnpm run build:database",
+    "preingest-knowledge": "pnpm run build:database && pnpm run build:llm",
+    "dev:web": "pnpm --filter @prefiero-ia/web dev",
+    "dev:api": "pnpm --filter @prefiero-ia/api start:dev",
+    "dev:worker": "pnpm --filter @prefiero-ia/worker dev",
+    "harvest": "pnpm --filter @prefiero-ia/worker harvest",
+    "backfill-installments": "pnpm --filter @prefiero-ia/worker backfill-installments",
+    "ingest-knowledge": "pnpm --filter @prefiero-ia/worker ingest-knowledge",
+    "build:apps": "pnpm run build:core && pnpm --filter @prefiero-ia/api build && pnpm --filter @prefiero-ia/web build && pnpm --filter @prefiero-ia/worker build",
+    "docker:up": "docker compose up -d",
+    "docker:down": "docker compose down"
+  }
+}

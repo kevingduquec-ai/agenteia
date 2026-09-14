@@ -1,0 +1,17 @@
+-- Prefiero IA — corrige la baja precision (recall) del indice de
+-- product_embeddings, mismo problema y mismo fix que la migracion 0003
+-- (knowledge_embeddings).
+--
+-- El indice ivfflat de la migracion 0007/0008 quedo con "lists = 100"
+-- pensando en un catalogo grande, pero el catalogo real tiene ~1.785
+-- productos: con ese volumen, la regla practica de ivfflat (lists ~
+-- filas/1000) pide apenas 1-2 listas, no 100 — con 100 listas para menos
+-- de 2.000 filas, cada lista queda con un puñado de vectores y el
+-- ivfflat.probes por defecto (1) solo revisa una fraccion minima del
+-- espacio, pudiendo saltarse el producto mas parecido real.
+--
+-- Un scan secuencial exacto es igual de rapido con este volumen y siempre
+-- encuentra el vecino mas cercano real. Reactivar un indice aproximado
+-- (ivfflat con lists ~ filas/1000, o hnsw) solo tiene sentido cuando el
+-- catalogo crezca a varias decenas de miles de productos.
+DROP INDEX IF EXISTS idx_product_embeddings_vector;

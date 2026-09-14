@@ -1,0 +1,15 @@
+{
+  "name": "@prefiero-ia/observability",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Logging y metricas de agent runs / costos LLM",
+  "main": "src/index.ts",
+  "types": "src/index.ts",
+  "scripts": {
+    "typecheck": "tsc --noEmit"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}

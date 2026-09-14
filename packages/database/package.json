@@ -1,0 +1,21 @@
+{
+  "name": "@prefiero-ia/database",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Cliente de base de datos y esquema compartido",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/pg": "^8.11.10",
+    "typescript": "^5.7.0"
+  }
+}

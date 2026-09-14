@@ -1,0 +1,11 @@
+-- Prefiero IA — busqueda de catalogo insensible a tildes
+--
+-- Los nombres de producto reales llevan tildes ("Audífonos", "Cafetera")
+-- pero un comprador tipico escribe sin ellas ("audifonos", "cafetera") al
+-- chatear. ILIKE es insensible a mayusculas pero NO a tildes, asi que
+-- "audifonos" y "audífonos" devolvian conteos distintos de resultados
+-- (verificado: 12 vs 11 en el catalogo real) — dependiendo de como
+-- escribiera el usuario, se le podian escapar productos reales que si
+-- existen. `unaccent` normaliza ambos lados de la comparacion antes de
+-- compararlos.
+CREATE EXTENSION IF NOT EXISTS unaccent;

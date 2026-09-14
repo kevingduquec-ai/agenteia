@@ -1,0 +1,20 @@
+{
+  "name": "@prefiero-ia/rag",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Retrieval Augmented Generation sobre pgvector",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "dev": "tsc -p tsconfig.json --watch",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@prefiero-ia/database": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^5.7.0"
+  }
+}
