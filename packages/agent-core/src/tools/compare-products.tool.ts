@@ -29,9 +29,9 @@ export interface CompareProductsResult {
   notFound: string[];
 }
 
-export const compareProductsHandler: ToolHandler<CompareProductsArgs, CompareProductsResult> = async (args) => {
+export const compareProductsHandler: ToolHandler<CompareProductsArgs, CompareProductsResult> = async (args, ctx) => {
   const names = args.productNames ?? [];
-  const results = await Promise.all(names.map(async (name) => ({ name, product: await resolveProduct(name) })));
+  const results = await Promise.all(names.map(async (name) => ({ name, product: await resolveProduct(ctx.tenantId, name) })));
   return {
     found: results.filter((r): r is { name: string; product: ProductDetail } => r.product !== null).map((r) => r.product),
     notFound: results.filter((r) => r.product === null).map((r) => r.name),

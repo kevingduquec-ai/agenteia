@@ -1,5 +1,6 @@
 import { closePool, findProductsMissingEmbedding, upsertProductEmbedding } from '@prefiero-ia/database';
 import { loadQwenEmbeddingConfig, QwenEmbeddingProvider } from '@prefiero-ia/llm';
+import { resolveTenantForCli } from '../tenant-cli.js';
 
 export interface BackfillSummary {
   configured: boolean;
@@ -22,7 +23,7 @@ export interface BackfillSummary {
  * exactos. Se corre en tandas para no disparar cientos de llamadas al
  * proveedor de embeddings de una sola vez si el catalogo es grande.
  */
-export async function runProductEmbeddingBackfill(batchSize = 200): Promise<BackfillSummary> {
+export async function runProductEmbeddingBackfill(tenantId: string, batchSize = 200): Promise<BackfillSummary> {
   const embeddingProvider = new QwenEmbeddingProvider(loadQwenEmbeddingConfig());
   const summary: BackfillSummary = { configured: embeddingProvider.isConfigured(), processed: 0, written: 0, errors: [] };
 
@@ -31,7 +32,7 @@ export async function runProductEmbeddingBackfill(batchSize = 200): Promise<Back
   }
 
   const model = embeddingProvider.model;
-  const pending = await findProductsMissingEmbedding(model, batchSize);
+  const pending = await findProductsMissingEmbedding(tenantId, model, batchSize);
 
   for (const product of pending) {
     summary.processed += 1;
@@ -49,8 +50,10 @@ export async function runProductEmbeddingBackfill(batchSize = 200): Promise<Back
   return summary;
 }
 
-export async function runProductEmbeddingBackfillCli(): Promise<void> {
-  const summary = await runProductEmbeddingBackfill();
+export async function runProductEmbeddingBackfillCli(tenantSlug?: string): Promise<void> {
+  const tenant = await resolveTenantForCli(tenantSlug);
+  console.log(`[backfill-product-embeddings] tenant=${tenant.slug}`);
+  const summary = await runProductEmbeddingBackfill(tenant.id);
   console.log('[backfill-product-embeddings] resumen:', JSON.stringify(summary, null, 2));
   await closePool();
   if (summary.errors.length > 0) {

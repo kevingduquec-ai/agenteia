@@ -8,6 +8,7 @@
     "dev": "tsx watch src/index.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/index.js",
+    "create-tenant": "tsx src/create-tenant-cli.ts",
     "harvest": "tsx src/crawler/harvest-cli.ts",
     "backfill-installments": "tsx src/crawler/backfill-installments-cli.ts",
     "ingest-knowledge": "tsx src/knowledge/ingest-cli.ts",

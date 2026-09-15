@@ -1,3 +1,5 @@
+import { tenantHeaders } from './tenant-header';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export type AdminRole = 'owner' | 'admin' | 'soporte';
@@ -65,7 +67,11 @@ export interface SupportMessage {
 export class AdminUnauthorizedError extends Error {}
 
 async function adminFetch<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${API_BASE}${path}`, { credentials: 'include', ...init });
+  const res = await fetch(`${API_BASE}${path}`, {
+    credentials: 'include',
+    ...init,
+    headers: { ...tenantHeaders(), ...init?.headers },
+  });
   if (res.status === 401 || res.status === 403) {
     throw new AdminUnauthorizedError('No autenticado.');
   }
@@ -100,7 +106,7 @@ function adminDelete<T>(path: string): Promise<T> {
 export async function adminLogin(username: string, password: string): Promise<{ ok: boolean; role?: AdminRole; message?: string }> {
   const res = await fetch(`${API_BASE}/admin/auth/login`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     credentials: 'include',
     body: JSON.stringify({ username, password }),
   });
@@ -111,7 +117,7 @@ export async function adminLogin(username: string, password: string): Promise<{ 
 }
 
 export async function adminLogout(): Promise<void> {
-  await fetch(`${API_BASE}/admin/auth/logout`, { method: 'POST', credentials: 'include' });
+  await fetch(`${API_BASE}/admin/auth/logout`, { method: 'POST', credentials: 'include', headers: tenantHeaders() });
 }
 
 /** null = no autenticado. */

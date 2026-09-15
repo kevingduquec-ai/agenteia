@@ -51,10 +51,10 @@ export interface RecommendProductsResult {
  * nunca bloquea una recomendacion por falta de una pieza opcional.
  */
 export function createRecommendProductsHandler(embed?: EmbedFn): ToolHandler<RecommendProductsArgs, RecommendProductsResult> {
-  return async (args) => {
+  return async (args, ctx) => {
     const [literalCandidates, semanticMatches] = await Promise.all([
-      searchProducts({ text: args.need, categoryName: args.categoryName, maxPrice: args.budget, limit: 20 }),
-      safeSemanticMatches(args.need, embed),
+      searchProducts(ctx.tenantId, { text: args.need, categoryName: args.categoryName, maxPrice: args.budget, limit: 20 }),
+      safeSemanticMatches(ctx.tenantId, args.need, embed),
     ]);
 
     const candidates: RankingCandidate[] = mergeSemanticCandidates(literalCandidates, semanticMatches);

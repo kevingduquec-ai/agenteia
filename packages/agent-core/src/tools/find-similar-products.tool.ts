@@ -21,11 +21,11 @@ export interface FindSimilarProductsArgs {
   productName: string;
 }
 
-export const findSimilarProductsHandler: ToolHandler<FindSimilarProductsArgs, CatalogToolResult> = async (args) => {
-  const reference = await resolveProduct(args.productName);
+export const findSimilarProductsHandler: ToolHandler<FindSimilarProductsArgs, CatalogToolResult> = async (args, ctx) => {
+  const reference = await resolveProduct(ctx.tenantId, args.productName);
   if (!reference) {
     return { count: 0, products: [], note: `No encontre "${args.productName}" en el catalogo.` };
   }
-  const products = await findSimilarProducts({ productId: reference.id });
+  const products = await findSimilarProducts(ctx.tenantId, { productId: reference.id });
   return { count: products.length, products, referenceProduct: reference };
 };

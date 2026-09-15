@@ -14,10 +14,16 @@ repositorio de este paquete.
   `ProductSearchFilters`, `CategoryPathSegment`, etc.) que consume
   `@prefiero-ia/catalog`.
 - **`repositories/`** — un archivo por área del esquema:
+  - `tenant.repository.ts` — la raíz de la identidad multi-tenant:
+    `findTenantByHost`/`findTenantBySlug`/`findTenantById`/`listTenants`/
+    `createTenant`. Todos los demás repositorios de esta carpeta reciben
+    un `tenantId` (casi siempre como primer o segundo parámetro) y filtran
+    por él en cada query — ver `docs/MULTI-TENANCY.md` para el porqué y
+    cómo se resuelve ese `tenantId` en cada request HTTP.
   - `catalog.repository.ts` — `upsertProduct`/`upsertBrand`/`upsertSeller`/
     `upsertCategoryPath` (usados por el harvester), `updateInstallmentBySku`
     (segunda pasada de cuota, ver `apps/worker`), `listCategorySlugs`,
-    `markStaleProductsInactive`.
+    `markStaleProductsInactive`. Todas reciben `tenantId`.
   - `product-search.repository.ts` — el motor de búsqueda de texto:
     ranking por tiers (categoría exacta > match fuerte de nombre/marca >
     match débil de descripción), expansión de sinónimos, y el fallback que
@@ -25,25 +31,40 @@ repositorio de este paquete.
     búsqueda en cero. Es el corazón de `search_products`,
     `find_products_by_budget`, `find_products_by_installment` y de la
     búsqueda literal detrás de `recommend_products`/`recommend_gift`.
+    Cada función filtra por `tenantId` — un tenant nunca ve el catálogo
+    de otro.
   - `product-embedding.repository.ts` — CRUD de `product_embeddings`
-    (backfill y búsqueda vectorial de producto).
+    (backfill y búsqueda vectorial de producto). El filtro de tenant llega
+    vía `product_id` (tabla hija, no tiene `tenant_id` propio).
   - `knowledge.repository.ts` — CRUD de `knowledge_documents`/
     `knowledge_chunks`/`knowledge_embeddings` y sus dos búsquedas
-    (`searchKnowledgeByVector`, `searchKnowledgeByFullText`).
-  - `chat.repository.ts` — sesiones anónimas, conversaciones, mensajes.
+    (`searchKnowledgeByVector`, `searchKnowledgeByFullText`), ambas
+    filtradas por `tenantId`.
+  - `chat.repository.ts` — sesiones anónimas, conversaciones, mensajes,
+    todo bajo `tenantId` (sesiones/conversaciones tienen la columna;
+    mensajes cuelgan de la conversación ya filtrada).
   - `support.repository.ts` — estados de conversación (`active` →
     `needs_support` → `resolved`/`closed`/`cancelled`), mensajes de
-    agentes de soporte, métricas de tiempo de respuesta.
-  - `admin-user.repository.ts` — cuentas `admin`/`soporte` (el `owner` NO
-    vive aquí, es fijo por variables de entorno).
+    agentes de soporte, métricas de tiempo de respuesta, y
+    `getConversationTenantId()` — verifica de qué tenant es una
+    conversación antes de dejar leer/escribir en ella (usado por
+    `apps/api` para no confiar en un `conversationId` ajeno).
+  - `admin-user.repository.ts` — cuentas `admin`/`soporte`, ahora filas
+    con `tenant_id` (el `owner` sigue sin vivir aquí, es fijo por
+    variables de entorno y es global entre tenants — ver
+    `docs/MULTI-TENANCY.md`). `findAdminUserByUsername` exige `tenantId`:
+    el mismo username puede existir en dos tenants distintos sin chocar.
   - `feedback.repository.ts` — calificación de 1 a 5 de la atención
     (`RatingNotAllowedError` si la conversación no tiene ningún mensaje de
-    usuario — evita calificaciones de sesiones vacías/falsas).
+    usuario — evita calificaciones de sesiones vacías/falsas). Filtrado
+    por `tenantId`.
   - `analytics.repository.ts` — todo lo que alimenta el panel admin:
     visitantes en vivo, productos más consultados, reporte de impacto,
-    desglose de intenciones.
+    desglose de intenciones. Todo por `tenantId` — cada cliente ve solo
+    sus propias métricas.
   - `unmet-demand.repository.ts` — registro de búsquedas que el catálogo
-    no pudo resolver (para saber qué le falta al catálogo).
+    no pudo resolver (para saber qué le falta al catálogo), por
+    `tenantId`.
 
 ## Esquema y migraciones
 

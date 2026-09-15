@@ -18,20 +18,29 @@ export class RatingNotAllowedError extends Error {}
  * por el limite global de la API, asi que esto no reemplaza ese limite,
  * lo complementa exigiendo actividad real, no solo una sesion creada.
  */
-export async function submitConversationRating(conversationId: string, rating: number, comment?: string | null): Promise<void> {
+export async function submitConversationRating(
+  tenantId: string,
+  conversationId: string,
+  rating: number,
+  comment?: string | null,
+): Promise<void> {
   const pool = getPool();
   const activity = await pool.query<{ has_activity: boolean }>(
-    `SELECT EXISTS(SELECT 1 FROM messages WHERE conversation_id = $1 AND role = 'user') AS has_activity`,
-    [conversationId],
+    `SELECT EXISTS(
+       SELECT 1 FROM messages m
+       JOIN conversations c ON c.id = m.conversation_id
+       WHERE m.conversation_id = $1 AND c.tenant_id = $2 AND m.role = 'user'
+     ) AS has_activity`,
+    [conversationId, tenantId],
   );
   if (!activity.rows[0]?.has_activity) {
     throw new RatingNotAllowedError('La conversación no existe o todavía no tiene mensajes.');
   }
   await pool.query(
-    `INSERT INTO feedback (conversation_id, rating, comment)
-     VALUES ($1, $2, $3)
+    `INSERT INTO feedback (tenant_id, conversation_id, rating, comment)
+     VALUES ($1, $2, $3, $4)
      ON CONFLICT (conversation_id) DO UPDATE SET rating = EXCLUDED.rating, comment = EXCLUDED.comment`,
-    [conversationId, rating, comment ?? null],
+    [tenantId, conversationId, rating, comment ?? null],
   );
 }
 
@@ -45,11 +54,11 @@ export interface RatingSummary {
 }
 
 /** Visible solo para admin/owner en el panel (nunca para soporte ni para el comprador) — pedido explicito del usuario. */
-export async function getRatingSummary(since: Date): Promise<RatingSummary> {
+export async function getRatingSummary(tenantId: string, since: Date): Promise<RatingSummary> {
   const pool = getPool();
   const result = await pool.query<{ rating: number; count: string }>(
-    `SELECT rating, count(*) FROM feedback WHERE created_at >= $1 GROUP BY rating`,
-    [since],
+    `SELECT rating, count(*) FROM feedback WHERE tenant_id = $1 AND created_at >= $2 GROUP BY rating`,
+    [tenantId, since],
   );
   const distribution: RatingSummary['distribution'] = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
   let total = 0;

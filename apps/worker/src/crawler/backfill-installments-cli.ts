@@ -2,6 +2,7 @@ import { config as loadEnv } from 'dotenv';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
 import { runInstallmentsBackfill } from './backfill-installments.js';
+import { resolveTenantForCli } from '../tenant-cli.js';
 
 const repoRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../');
 loadEnv({ path: path.join(repoRoot, '.env') });
@@ -12,16 +13,17 @@ function parseArg(name: string): string | undefined {
   return arg?.slice(prefix.length);
 }
 
-const baseUrl = process.env.CRAWLER_BASE_URL || 'https://prefieroacr.com';
+const tenant = await resolveTenantForCli(parseArg('tenant'));
+const baseUrl = tenant.crawlerBaseUrl;
 const delayMs = Number(parseArg('delay') ?? process.env.CRAWLER_DELAY_MS ?? 800);
 const limitArg = parseArg('limit');
 const limit = limitArg ? Number(limitArg) : undefined;
 
 console.log(
-  `[backfill-installments] baseUrl=${baseUrl} delayMs=${delayMs} limit=${limit ?? 'sin limite (todas las categorias conocidas)'}`,
+  `[backfill-installments] tenant=${tenant.slug} baseUrl=${baseUrl} delayMs=${delayMs} limit=${limit ?? 'sin limite (todas las categorias conocidas)'}`,
 );
 
-const summary = await runInstallmentsBackfill({ baseUrl, delayMs, limit }, (done, total) => {
+const summary = await runInstallmentsBackfill({ tenantId: tenant.id, baseUrl, delayMs, limit }, (done, total) => {
   process.stdout.write(`\r[backfill-installments] ${done}/${total} categorias visitadas`);
 });
 

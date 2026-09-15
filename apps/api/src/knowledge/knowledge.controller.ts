@@ -1,6 +1,8 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional, IsString, Max, MaxLength, Min, MinLength } from 'class-validator';
+import type { TenantRow } from '@prefiero-ia/database';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { KnowledgeService } from './knowledge.service.js';
 
 class SearchKnowledgeDto {
@@ -22,8 +24,8 @@ export class KnowledgeController {
   constructor(private readonly knowledgeService: KnowledgeService) {}
 
   @Get('search')
-  async search(@Query() query: SearchKnowledgeDto) {
-    const results = await this.knowledgeService.search(query.q.trim(), query.limit);
+  async search(@Query() query: SearchKnowledgeDto, @CurrentTenant() tenant: TenantRow) {
+    const results = await this.knowledgeService.search(tenant.id, query.q.trim(), query.limit);
 
     return {
       query: query.q,

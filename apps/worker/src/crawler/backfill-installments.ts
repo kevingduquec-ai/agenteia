@@ -3,6 +3,7 @@ import { parseListingPage } from './listing-parser.js';
 import { politeFetch } from './http.js';
 
 export interface BackfillInstallmentsOptions {
+  tenantId: string;
   baseUrl: string;
   delayMs: number;
   limit?: number;
@@ -33,7 +34,7 @@ export async function runInstallmentsBackfill(
   options: BackfillInstallmentsOptions,
   onProgress?: (done: number, total: number) => void,
 ): Promise<BackfillInstallmentsSummary> {
-  const { baseUrl, delayMs } = options;
+  const { tenantId, baseUrl, delayMs } = options;
   const summary: BackfillInstallmentsSummary = {
     categoriesVisited: 0,
     categoriesFailed: 0,
@@ -42,7 +43,7 @@ export async function runInstallmentsBackfill(
     errors: [],
   };
 
-  const allSlugs = await listCategorySlugs();
+  const allSlugs = await listCategorySlugs(tenantId);
   const slugs = options.limit ? allSlugs.slice(0, options.limit) : allSlugs;
 
   for (const [index, slug] of slugs.entries()) {
@@ -54,7 +55,7 @@ export async function runInstallmentsBackfill(
       summary.categoriesVisited += 1;
 
       for (const card of cards) {
-        const updated = await updateInstallmentBySku(card.sku, card.installmentValue, card.installmentCount);
+        const updated = await updateInstallmentBySku(tenantId, card.sku, card.installmentValue, card.installmentCount);
         if (updated) summary.productsUpdated += 1;
       }
     } catch (error) {

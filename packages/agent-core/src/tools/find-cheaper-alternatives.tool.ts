@@ -21,12 +21,12 @@ export interface FindCheaperAlternativesArgs {
   productName: string;
 }
 
-export const findCheaperAlternativesHandler: ToolHandler<FindCheaperAlternativesArgs, CatalogToolResult> = async (args) => {
-  const reference = await resolveProduct(args.productName);
+export const findCheaperAlternativesHandler: ToolHandler<FindCheaperAlternativesArgs, CatalogToolResult> = async (args, ctx) => {
+  const reference = await resolveProduct(ctx.tenantId, args.productName);
   if (!reference) {
     return { count: 0, products: [], note: `No encontre "${args.productName}" en el catalogo.` };
   }
-  const products = await findCheaperAlternatives({ productId: reference.id });
+  const products = await findCheaperAlternatives(ctx.tenantId, { productId: reference.id });
   if (products.length === 0) {
     return {
       count: 0,

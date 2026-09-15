@@ -12,8 +12,11 @@ export interface PageContext {
 
 const PRODUCT_PATH_PATTERN = /^\/p\/([^/?#]+)/;
 
-/** Si la ruta es una ficha de producto (`/p/<slug>`), resuelve el producto real correspondiente — null si la ruta no es de producto o el slug no existe (pudo haber sido descontinuado). */
-export async function resolveProductFromPageContext(context: PageContext | null | undefined): Promise<ProductSummary | null> {
+/** Si la ruta es una ficha de producto (`/p/<slug>`), resuelve el producto real correspondiente DENTRO del catalogo de `tenantId` — null si la ruta no es de producto o el slug no existe para ese tenant (pudo haber sido descontinuado). */
+export async function resolveProductFromPageContext(
+  tenantId: string,
+  context: PageContext | null | undefined,
+): Promise<ProductSummary | null> {
   const path = context?.path;
   if (!path) {
     return null;
@@ -22,6 +25,6 @@ export async function resolveProductFromPageContext(context: PageContext | null 
   if (!match) {
     return null;
   }
-  const row = await getProductBySlug(match[1]);
+  const row = await getProductBySlug(tenantId, match[1]);
   return row ? toProductSummary(row) : null;
 }

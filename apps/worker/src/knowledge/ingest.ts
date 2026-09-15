@@ -14,6 +14,7 @@ import { parseKnowledgePage, type KnowledgePage } from './page-parser.js';
 import { KNOWLEDGE_SOURCES } from './sources.js';
 
 export interface IngestOptions {
+  tenantId: string;
   delayMs: number;
 }
 
@@ -48,7 +49,7 @@ export async function runKnowledgeIngest(options: IngestOptions): Promise<Ingest
       }
 
       const docHash = contentHash([page.title, ...page.sections.map((s) => `${s.heading}::${s.text}`)]);
-      const docResult = await upsertKnowledgeDocument({ sourceUrl, title: page.title, contentHash: docHash });
+      const docResult = await upsertKnowledgeDocument(options.tenantId, { sourceUrl, title: page.title, contentHash: docHash });
       summary.pagesProcessed += 1;
 
       if (docResult.changed) {
@@ -71,7 +72,7 @@ export async function runKnowledgeIngest(options: IngestOptions): Promise<Ingest
   if (!embeddingProvider.isConfigured()) {
     summary.embeddingsSkippedReason = 'QWEN_API_KEY no configurada — los chunks quedaron sin embedding (busqueda de texto completo sigue funcionando).';
   } else {
-    const pending = await getChunksWithoutEmbeddings(1000);
+    const pending = await getChunksWithoutEmbeddings(options.tenantId, 1000);
     for (const chunk of pending) {
       try {
         const result = await embeddingProvider.embed(chunk.content);

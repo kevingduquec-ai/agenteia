@@ -34,8 +34,8 @@ export interface CatalogToolResult {
   referenceProduct?: ProductSummary;
 }
 
-export const searchProductsHandler: ToolHandler<SearchProductsArgs, CatalogToolResult> = async (args) => {
-  const products = await searchProducts({
+export const searchProductsHandler: ToolHandler<SearchProductsArgs, CatalogToolResult> = async (args, ctx) => {
+  const products = await searchProducts(ctx.tenantId, {
     text: args.query,
     categoryName: args.categoryName,
     brandName: args.brandName,

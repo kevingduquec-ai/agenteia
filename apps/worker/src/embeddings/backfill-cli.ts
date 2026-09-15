@@ -6,4 +6,10 @@ import { runProductEmbeddingBackfillCli } from './index.js';
 const repoRoot = path.resolve(fileURLToPath(new URL('.', import.meta.url)), '../../../../');
 loadEnv({ path: path.join(repoRoot, '.env') });
 
-await runProductEmbeddingBackfillCli();
+function parseArg(name: string): string | undefined {
+  const prefix = `--${name}=`;
+  const arg = process.argv.find((a) => a.startsWith(prefix));
+  return arg?.slice(prefix.length);
+}
+
+await runProductEmbeddingBackfillCli(parseArg('tenant'));

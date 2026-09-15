@@ -10,12 +10,12 @@ export type EmbedFn = (text: string) => Promise<number[]>;
  * proveedor caido), simplemente no aporta candidatos extra — nunca rompe
  * una recomendacion por falta de una pieza opcional.
  */
-export async function safeSemanticMatches(queryText: string, embed: EmbedFn | undefined): Promise<SemanticMatch[]> {
+export async function safeSemanticMatches(tenantId: string, queryText: string, embed: EmbedFn | undefined): Promise<SemanticMatch[]> {
   if (!embed) {
     return [];
   }
   try {
-    return await findSemanticProductMatches(queryText, embed);
+    return await findSemanticProductMatches(tenantId, queryText, embed);
   } catch {
     return [];
   }

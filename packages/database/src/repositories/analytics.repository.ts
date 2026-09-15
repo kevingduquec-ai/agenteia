@@ -17,18 +17,22 @@ export async function touchSessionByConversationId(conversationId: string): Prom
   );
 }
 
-export async function recordProductImpressions(conversationId: string | null | undefined, productIds: string[]): Promise<void> {
+export async function recordProductImpressions(
+  tenantId: string,
+  conversationId: string | null | undefined,
+  productIds: string[],
+): Promise<void> {
   if (productIds.length === 0) {
     return;
   }
   const pool = getPool();
   const values: string[] = [];
   const params: unknown[] = [];
-  productIds.forEach((productId, i) => {
-    params.push(productId, conversationId ?? null);
-    values.push(`($${params.length - 1}, $${params.length})`);
+  productIds.forEach((productId) => {
+    params.push(tenantId, productId, conversationId ?? null);
+    values.push(`($${params.length - 2}, $${params.length - 1}, $${params.length})`);
   });
-  await pool.query(`INSERT INTO product_impressions (product_id, conversation_id) VALUES ${values.join(', ')}`, params);
+  await pool.query(`INSERT INTO product_impressions (tenant_id, product_id, conversation_id) VALUES ${values.join(', ')}`, params);
 }
 
 export interface SearchEventInput {
@@ -38,20 +42,20 @@ export interface SearchEventInput {
   resultCount: number;
 }
 
-export async function recordSearchEvent(input: SearchEventInput): Promise<void> {
+export async function recordSearchEvent(tenantId: string, input: SearchEventInput): Promise<void> {
   const pool = getPool();
   await pool.query(
-    'INSERT INTO search_events (conversation_id, query, intent, result_count) VALUES ($1, $2, $3, $4)',
-    [input.conversationId ?? null, input.query, input.intent ?? null, input.resultCount],
+    'INSERT INTO search_events (tenant_id, conversation_id, query, intent, result_count) VALUES ($1, $2, $3, $4, $5)',
+    [tenantId, input.conversationId ?? null, input.query, input.intent ?? null, input.resultCount],
   );
 }
 
-/** "En vivo" = una sesion con actividad en los ultimos `minutes` minutos. */
-export async function countLiveVisitors(minutes = 5): Promise<number> {
+/** "En vivo" = una sesion de ESTE tenant con actividad en los ultimos `minutes` minutos. */
+export async function countLiveVisitors(tenantId: string, minutes = 5): Promise<number> {
   const pool = getPool();
   const result = await pool.query<{ count: string }>(
-    `SELECT count(*) FROM sessions WHERE last_active_at > now() - ($1 || ' minutes')::interval`,
-    [minutes],
+    `SELECT count(*) FROM sessions WHERE tenant_id = $1 AND last_active_at > now() - ($2 || ' minutes')::interval`,
+    [tenantId, minutes],
   );
   return Number(result.rows[0].count);
 }
@@ -64,17 +68,17 @@ export interface TopProductRow {
   impressions: number;
 }
 
-export async function getTopConsultedProducts(limit = 10, days = 7): Promise<TopProductRow[]> {
+export async function getTopConsultedProducts(tenantId: string, limit = 10, days = 7): Promise<TopProductRow[]> {
   const pool = getPool();
   const result = await pool.query<{ product_id: string; name: string; price: string; image_url: string | null; impressions: string }>(
     `SELECT pi.product_id, p.name, p.price, p.image_url, count(*) AS impressions
      FROM product_impressions pi
      JOIN products p ON p.id = pi.product_id
-     WHERE pi.created_at > now() - ($2 || ' days')::interval
+     WHERE pi.tenant_id = $1 AND pi.created_at > now() - ($3 || ' days')::interval
      GROUP BY pi.product_id, p.name, p.price, p.image_url
      ORDER BY impressions DESC
-     LIMIT $1`,
-    [limit, days],
+     LIMIT $2`,
+    [tenantId, limit, days],
   );
   return result.rows.map((row) => ({
     productId: row.product_id,
@@ -93,16 +97,16 @@ export interface UnmetDemandSummaryRow {
 }
 
 /** Agrupa por categoria+marca pedida — el "lo que buscan y no tenemos" de la sección 41-46, para que el dueño del marketplace sepa que le falta al catalogo. */
-export async function getUnmetDemandSummary(limit = 10, days = 30): Promise<UnmetDemandSummaryRow[]> {
+export async function getUnmetDemandSummary(tenantId: string, limit = 10, days = 30): Promise<UnmetDemandSummaryRow[]> {
   const pool = getPool();
   const result = await pool.query<{ requested_category: string | null; requested_brand: string | null; count: string; sample_query: string }>(
     `SELECT requested_category, requested_brand, count(*) AS count, (array_agg(query ORDER BY created_at DESC))[1] AS sample_query
      FROM unmet_demands
-     WHERE created_at > now() - ($2 || ' days')::interval
+     WHERE tenant_id = $1 AND created_at > now() - ($3 || ' days')::interval
      GROUP BY requested_category, requested_brand
      ORDER BY count DESC
-     LIMIT $1`,
-    [limit, days],
+     LIMIT $2`,
+    [tenantId, limit, days],
   );
   return result.rows.map((row) => ({
     requestedCategory: row.requested_category,
@@ -120,7 +124,7 @@ export interface ConversationOverview {
   messagesToday: number;
 }
 
-export async function getConversationOverview(): Promise<ConversationOverview> {
+export async function getConversationOverview(tenantId: string): Promise<ConversationOverview> {
   const pool = getPool();
   const result = await pool.query<{
     total_sessions: string;
@@ -128,14 +132,18 @@ export async function getConversationOverview(): Promise<ConversationOverview> {
     total_messages: string;
     conversations_today: string;
     messages_today: string;
-  }>(`
-    SELECT
-      (SELECT count(*) FROM sessions) AS total_sessions,
-      (SELECT count(*) FROM conversations) AS total_conversations,
-      (SELECT count(*) FROM messages WHERE role IN ('user', 'assistant')) AS total_messages,
-      (SELECT count(*) FROM conversations WHERE created_at > date_trunc('day', now())) AS conversations_today,
-      (SELECT count(*) FROM messages WHERE role IN ('user', 'assistant') AND created_at > date_trunc('day', now())) AS messages_today
-  `);
+  }>(
+    `SELECT
+      (SELECT count(*) FROM sessions WHERE tenant_id = $1) AS total_sessions,
+      (SELECT count(*) FROM conversations WHERE tenant_id = $1) AS total_conversations,
+      (SELECT count(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.tenant_id = $1 AND m.role IN ('user', 'assistant')) AS total_messages,
+      (SELECT count(*) FROM conversations WHERE tenant_id = $1 AND created_at > date_trunc('day', now())) AS conversations_today,
+      (SELECT count(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id
+         WHERE c.tenant_id = $1 AND m.role IN ('user', 'assistant') AND m.created_at > date_trunc('day', now())) AS messages_today
+    `,
+    [tenantId],
+  );
   const row = result.rows[0];
   return {
     totalSessions: Number(row.total_sessions),
@@ -164,9 +172,10 @@ export interface ImpactReport {
  * usuario) — junta metricas que ya existian por separado en una sola
  * consulta pensada para responder "que tan importante fue Prefi esta
  * semana/mes/año", no solo "cuantos mensajes hubo". `days` es la ventana
- * (7, 30 o 365 en el panel del owner).
+ * (7, 30 o 365 en el panel del owner). El owner elige de que tenant
+ * quiere este reporte — nunca se agrega entre todos los clientes.
  */
-export async function getImpactReport(days: number): Promise<ImpactReport> {
+export async function getImpactReport(tenantId: string, days: number): Promise<ImpactReport> {
   const pool = getPool();
   const result = await pool.query<{
     conversations: string;
@@ -176,17 +185,22 @@ export async function getImpactReport(days: number): Promise<ImpactReport> {
     unmet_demand_signals: string;
   }>(
     `SELECT
-       (SELECT count(*) FROM conversations WHERE created_at > now() - ($1 || ' days')::interval) AS conversations,
-       (SELECT count(*) FROM messages WHERE role = 'user' AND created_at > now() - ($1 || ' days')::interval) AS customer_messages,
-       (SELECT count(*) FROM messages WHERE role = 'assistant' AND intent = 'UNKNOWN' AND created_at > now() - ($1 || ' days')::interval) AS off_topic_deflected,
-       (SELECT count(*) FROM conversations WHERE needs_support_at > now() - ($1 || ' days')::interval) AS support_escalations,
-       (SELECT count(*) FROM unmet_demands WHERE created_at > now() - ($1 || ' days')::interval) AS unmet_demand_signals`,
-    [days],
+       (SELECT count(*) FROM conversations WHERE tenant_id = $1 AND created_at > now() - ($2 || ' days')::interval) AS conversations,
+       (SELECT count(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id
+          WHERE c.tenant_id = $1 AND m.role = 'user' AND m.created_at > now() - ($2 || ' days')::interval) AS customer_messages,
+       (SELECT count(*) FROM messages m JOIN conversations c ON c.id = m.conversation_id
+          WHERE c.tenant_id = $1 AND m.role = 'assistant' AND m.intent = 'UNKNOWN' AND m.created_at > now() - ($2 || ' days')::interval) AS off_topic_deflected,
+       (SELECT count(*) FROM conversations WHERE tenant_id = $1 AND needs_support_at > now() - ($2 || ' days')::interval) AS support_escalations,
+       (SELECT count(*) FROM unmet_demands WHERE tenant_id = $1 AND created_at > now() - ($2 || ' days')::interval) AS unmet_demand_signals`,
+    [tenantId, days],
   );
   const row = result.rows[0];
 
   const since = new Date(Date.now() - days * 24 * 60 * 60 * 1000);
-  const [responseStats, ratingSummary] = await Promise.all([getSupportResponseStats(since), getRatingSummary(since)]);
+  const [responseStats, ratingSummary] = await Promise.all([
+    getSupportResponseStats(tenantId, since),
+    getRatingSummary(tenantId, since),
+  ]);
 
   return {
     conversations: Number(row.conversations),
@@ -205,15 +219,16 @@ export interface IntentBreakdownRow {
   count: number;
 }
 
-export async function getIntentBreakdown(days = 7): Promise<IntentBreakdownRow[]> {
+export async function getIntentBreakdown(tenantId: string, days = 7): Promise<IntentBreakdownRow[]> {
   const pool = getPool();
   const result = await pool.query<{ intent: string; count: string }>(
-    `SELECT intent, count(*) AS count
-     FROM messages
-     WHERE role = 'assistant' AND intent IS NOT NULL AND created_at > now() - ($1 || ' days')::interval
-     GROUP BY intent
+    `SELECT m.intent, count(*) AS count
+     FROM messages m
+     JOIN conversations c ON c.id = m.conversation_id
+     WHERE c.tenant_id = $1 AND m.role = 'assistant' AND m.intent IS NOT NULL AND m.created_at > now() - ($2 || ' days')::interval
+     GROUP BY m.intent
      ORDER BY count DESC`,
-    [days],
+    [tenantId, days],
   );
   return result.rows.map((row) => ({ intent: row.intent, count: Number(row.count) }));
 }

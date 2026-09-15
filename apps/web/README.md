@@ -45,6 +45,12 @@ estático que activa el widget en el sitio del cliente.
   `window.location.origin` (el dominio de **esta** app — nunca el de la
   API, que es un dominio distinto en producción, ver
   `docs/FIXES-2026-09-14.md` para el bug real que esto corrigió).
+- **`tenant-header.ts`** — `tenantHeaders()`, manda
+  `X-Tenant-Host: window.location.hostname` en cada llamada de `api.ts`/
+  `admin-api.ts`. Es así como la API (en su propio dominio, distinto al
+  de esta app en producción) sabe a qué tenant pertenece la request —
+  ver [`docs/MULTI-TENANCY.md`](../../docs/MULTI-TENANCY.md). SSR-safe
+  (no falla si `window` no existe).
 - **`session.ts`** — id de sesión anónimo en `localStorage`.
 
 ## Desarrollo

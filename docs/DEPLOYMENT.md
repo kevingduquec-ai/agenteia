@@ -14,37 +14,45 @@ y `/embed.js` con 200).
 
 ## 0. Arquitectura
 
-Dos dominios públicos, un solo servidor:
+**Multi-tenant** (ver `docs/MULTI-TENANCY.md` para el detalle completo):
+un solo despliegue de `api`/`web` atiende a TODOS los clientes — cada uno
+distinguido por su propio subdominio de `app`. No hay que repetir este
+manual completo por cada cliente nuevo, solo la sección 7b.
 
 ```
-                         ┌─────────────────────────────┐
-                         │   VPS (Docker Compose)       │
-  Internet ──HTTPS───▶   │                              │
-                         │  nginx (80/443, TLS)          │
-                         │   ├─ app.tu-dominio.com ──▶ web  (Next.js, 3000)
-                         │   └─ api.tu-dominio.com ──▶ api  (NestJS, 3001)
-                         │                              │
-                         │  api ──▶ postgres (pgvector)  │
-                         │  api ──▶ redis                │
-                         │  worker (bajo demanda, no 24/7)│
-                         └─────────────────────────────┘
+                         ┌───────────────────────────────────────────┐
+                         │   VPS (Docker Compose)                     │
+  Internet ──HTTPS───▶   │                                            │
+                         │  nginx (80/443, TLS)                       │
+                         │   ├─ acr.app.tu-dominio.com  ──▶ web (3000) │  ← tenant "acr"
+                         │   ├─ clienteb.app.tu-dominio.com ──▶ web    │  ← tenant "clienteb"
+                         │   └─ api.tu-dominio.com      ──▶ api (3001) │  ← UNA sola API para todos
+                         │                                            │
+                         │  api ──▶ postgres (pgvector, tenant_id en  │
+                         │           cada tabla)                      │
+                         │  api ──▶ redis                             │
+                         │  worker (bajo demanda, --tenant=<slug>)    │
+                         └───────────────────────────────────────────┘
 ```
 
-- **`app.tu-dominio.com`** sirve el panel `/admin`, la página del chat
-  `/widget` y el script estático `/embed.js` — es el dominio que va DENTRO
-  del `<script src="...">` que se pega en el sitio del cliente.
-- **`api.tu-dominio.com`** es la API REST/streaming (`/chat/*`,
-  `/admin/*`, `/llm/*`). El frontend le habla vía CORS con
-  `credentials: true` (cookie de sesión del panel) — por eso son dos
-  dominios separados y no rutas bajo el mismo host.
+- **`<tenant>.app.tu-dominio.com`** — un subdominio por cliente, sirviendo
+  la MISMA imagen de `web` (panel `/admin`, `/widget`, `/embed.js`). El
+  subdominio con el que el navegador ve la página es lo único que
+  distingue a un cliente de otro — `apps/web` manda ese hostname en el
+  header `X-Tenant-Host` en cada llamada a la API.
+- **`api.tu-dominio.com`** — una sola API para todos los tenants
+  (`/chat/*`, `/admin/*`, `/llm/*`). Resuelve a qué tenant pertenece cada
+  petición por el header de arriba, nunca por su propio dominio.
 - **`worker` no es un servicio permanente todavía** (`apps/worker/src/index.ts`
-  sigue siendo un placeholder): se invoca puntualmente para poblar el
-  catálogo y la base de conocimiento (sección 8), nunca con `restart:
-  unless-stopped`.
+  sigue siendo un placeholder): se invoca puntualmente, por tenant
+  (`--tenant=<slug>`), para poblar el catálogo y la base de conocimiento
+  de ESE cliente (sección 7b), nunca con `restart: unless-stopped`.
 
-Reemplaza `tu-dominio.com` por el dominio real elegido para este cliente
-(ej. `prefi-acr.qubit.com.co` como raíz, con `app.` y `api.` como
-subdominios) en todos los pasos de abajo.
+Reemplaza `tu-dominio.com` por el dominio real de Qubit (ej.
+`qubit.com.co`, con `app.` y `api.` como raíces de subdominio) en todos
+los pasos de abajo. El primer cliente de este manual usa el slug `acr`
+(Prefiero ACR+) — un cliente nuevo repite solo la sección 7b con su
+propio slug.
 
 ## 1. Requisitos previos
 
@@ -73,14 +81,20 @@ docker --version && docker compose version
 
 ### DNS
 
-Crea dos registros `A` apuntando a la IP del VPS:
+Crea un registro `A` para la API y uno por cada tenant que vayas a
+desplegar ahora (el primero, `acr`):
 
 ```
-app.tu-dominio.com   A   <IP-del-VPS>
-api.tu-dominio.com   A   <IP-del-VPS>
+api.tu-dominio.com       A   <IP-del-VPS>
+acr.app.tu-dominio.com   A   <IP-del-VPS>
 ```
 
-Espera a que propaguen (`dig app.tu-dominio.com` debe devolver la IP)
+Un cliente nuevo más adelante solo necesita su propio registro
+`<slug>.app.tu-dominio.com` — no hace falta wildcard mientras sean pocos
+clientes (agregar uno de más no rehace nada de lo ya desplegado, ver
+sección 7b).
+
+Espera a que propaguen (`dig acr.app.tu-dominio.com` debe devolver la IP)
 antes de pedir los certificados en el paso 6.
 
 ## 2. Clonar el proyecto y configurar `.env`
@@ -96,20 +110,20 @@ producción (nunca dejar los de `.env.example`):
 
 | Variable | Valor en producción |
 |---|---|
+| `NODE_ENV` | `production` (activa la validación estricta de CORS por tenant, ver `docs/MULTI-TENANCY.md`) |
 | `POSTGRES_PASSWORD` | contraseña generada, no "prefiero" |
 | `JWT_SECRET` | ver comando abajo |
 | `OWNER_USERNAME` / `OWNER_PASSWORD_HASH` | ver comando abajo |
 | `NEXT_PUBLIC_API_URL` | `https://api.tu-dominio.com` |
-| `CORS_ORIGINS` | `https://app.tu-dominio.com,https://prefieroacr.com` |
 | `QWEN_API_KEY`, `DEEPSEEK_API_KEY` | keys reales |
-| `CRAWLER_BASE_URL` | `https://prefieroacr.com` (ya viene así) |
-| `MAX_ADMIN_SEATS` / `MAX_SUPPORT_SEATS` | según el plan contratado (Base: 1/1, Crecimiento: 2/3) |
 
-`CORS_ORIGINS` lleva **ambos** dominios que van a llamar a la API: el
-propio panel/widget (`app.tu-dominio.com`) y cualquier sitio donde se
-vaya a embeber el widget (`prefieroacr.com`) — sin el segundo, el chat
-insertado en el sitio del cliente no podría hablarle a la API desde el
-navegador del comprador (CORS lo bloquea).
+Ya **no existen** `CRAWLER_BASE_URL`/`MAX_ADMIN_SEATS`/`MAX_SUPPORT_SEATS`
+ni un `CORS_ORIGINS` obligatorio: eso ahora vive por cliente en la tabla
+`tenants` (`crawler_base_url`, cupos, `extra_cors_origins` — el sitio del
+cliente donde se embebe el widget) y se crea con `create-tenant` en la
+sección 7b. `CORS_ORIGINS` en `.env` sigue existiendo solo como una lista
+extra de orígenes que no pertenecen a ningún tenant (ej. herramientas
+internas) — normalmente se deja vacío.
 
 ```bash
 # JWT_SECRET — cualquier cadena aleatoria larga sirve:
@@ -134,8 +148,9 @@ docker compose -f docker-compose.prod.yml ps   # ambos "healthy" antes de seguir
 `infrastructure/postgres/init/001_extensions.sql` crea `vector` y
 `pg_trgm` automáticamente la primera vez (monta como
 `docker-entrypoint-initdb.d`, solo corre en un volumen nuevo). Las
-migraciones de esquema en `database/migrations/` (9 al día de hoy) se
-aplican a mano, en orden, una sola vez:
+migraciones de esquema en `database/migrations/` (10 al día de hoy,
+incluida `0010_multi_tenant.sql`) se aplican a mano, en orden, una sola
+vez:
 
 ```bash
 for f in database/migrations/*.sql; do
@@ -168,7 +183,7 @@ certificados que todavía no existen.
 ```bash
 cd infrastructure/nginx/conf.d
 cp prefi.bootstrap.conf.example prefi.conf
-sed -i "s/APP_DOMAIN/app.tu-dominio.com/g; s/API_DOMAIN/api.tu-dominio.com/g" prefi.conf
+sed -i "s/APP_DOMAIN/acr.app.tu-dominio.com/g; s/API_DOMAIN/api.tu-dominio.com/g" prefi.conf
 cd ../../..
 
 docker compose -f docker-compose.prod.yml --env-file .env up -d nginx
@@ -179,16 +194,21 @@ docker compose -f docker-compose.prod.yml --env-file .env up -d nginx
 ```bash
 sudo certbot certonly --webroot \
   -w infrastructure/nginx/webroot \
-  -d app.tu-dominio.com -d api.tu-dominio.com \
+  -d acr.app.tu-dominio.com -d api.tu-dominio.com \
   --email tu-correo@qubit.com.co --agree-tos --no-eff-email
 
 cd infrastructure/nginx/conf.d
 cp prefi.conf.example prefi.conf
-sed -i "s/APP_DOMAIN/app.tu-dominio.com/g; s/API_DOMAIN/api.tu-dominio.com/g" prefi.conf
+sed -i "s/APP_DOMAIN/acr.app.tu-dominio.com/g; s/API_DOMAIN/api.tu-dominio.com/g" prefi.conf
 cd ../../..
 
 docker compose -f docker-compose.prod.yml --env-file .env restart nginx
 ```
+
+> Los archivos `.example` traen un solo bloque `APP_DOMAIN` — con más de
+> un tenant, agrega un `server` adicional por cada subdominio nuevo (todos
+> apuntando al mismo contenedor `web`) en vez de reemplazar el existente.
+> Ver sección 7b para el flujo completo de agregar un cliente.
 
 Certbot instala su propio cron/systemd timer para renovar automáticamente;
 solo falta que nginx recargue los certificados renovados cada tanto (basta
@@ -200,34 +220,40 @@ mensual, o agregarlo como línea extra al hook de renovación de certbot en
 
 ```bash
 curl -s https://api.tu-dominio.com/llm/health          # {"ok":true,...} si las keys estan bien
-curl -s -o /dev/null -w "%{http_code}\n" https://app.tu-dominio.com/embed.js   # 200
+curl -s -o /dev/null -w "%{http_code}\n" https://acr.app.tu-dominio.com/embed.js   # 200
 ```
 
-Entra a `https://app.tu-dominio.com/admin/login` con el `OWNER_USERNAME` y
-la contraseña real del paso 2, y revisa `Impacto → Diagnóstico del
-sistema` (`GET /admin/owner/health`) — confirma en la UI que la base de
-datos y el motor inteligente están `ok`.
+Entra a `https://acr.app.tu-dominio.com/admin/login` con el
+`OWNER_USERNAME` y la contraseña real del paso 2, y revisa `Impacto →
+Diagnóstico del sistema` (`GET /admin/owner/health`) — confirma en la UI
+que la base de datos y el motor inteligente están `ok`.
 
-## 7. Cargar el catálogo y la base de conocimiento
+## 7. Crear el tenant y cargar su catálogo
 
-Con `api`/`web` ya arriba, corre el worker puntualmente (perfil `tools`,
-no queda corriendo después):
+Con `api`/`web` ya arriba, primero se crea la fila del cliente
+(`tenants`) y después se puebla SU catálogo/conocimiento — todo por
+`docker compose run` puntual (perfil `tools`, no queda corriendo
+después):
 
 ```bash
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
-  pnpm run harvest -- --limit=30        # prueba acotada primero
+  pnpm run create-tenant -- --slug=acr --name="Prefiero ACR+" \
+    --host=acr.app.tu-dominio.com --crawler-base-url=https://prefieroacr.com
 
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
-  pnpm run harvest                      # catálogo completo
+  pnpm run harvest -- --tenant=acr --limit=30      # prueba acotada primero
 
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
-  pnpm run ingest-knowledge             # FAQ, garantía, envíos, etc.
+  pnpm run harvest -- --tenant=acr                 # catálogo completo
 
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
-  pnpm run backfill-product-embeddings  # busqueda semantica (ver docs/FIXES-2026-09-14.md)
+  pnpm run ingest-knowledge -- --tenant=acr        # FAQ, garantía, envíos, etc.
 
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
-  pnpm run backfill-installments        # cuota ACR por producto (ver docs/FIXES-2026-09-14.md)
+  pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=acr
+
+docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
+  pnpm run backfill-installments -- --tenant=acr
 ```
 
 Corre `harvest` primero siempre — tanto `backfill-product-embeddings` como
@@ -237,6 +263,27 @@ ya conocidas). `backfill-installments` es seguro de repetir cuando cambien
 precios/cuotas reales del sitio; `backfill-product-embeddings` solo
 procesa productos que todavía no tienen embedding (200 por corrida — con
 un catálogo de ~1.800 productos hacen falta varias corridas seguidas).
+Ver `docs/FIXES-2026-09-14.md` para el detalle de ambos.
+
+### 7b. Agregar un cliente nuevo más adelante
+
+Todo lo de arriba, pero sin repetir los pasos 1-6 (el servidor, Docker,
+`api`/`web`, y sus certificados/`api.tu-dominio.com` ya existen):
+
+1. DNS: agrega `<slug>.app.tu-dominio.com` apuntando a la misma IP.
+2. Nginx: agrega un `server` nuevo en `infrastructure/nginx/conf.d/prefi.conf`
+   para ese subdominio (mismo `proxy_pass http://web:3000` que ya usa el
+   resto) y pide su certificado con
+   `sudo certbot certonly --webroot -w infrastructure/nginx/webroot -d <slug>.app.tu-dominio.com ...`
+   — puedes ir agregando `-d` a un mismo certificado o pedir uno nuevo por
+   cliente, cualquiera de los dos funciona con nginx.
+3. `pnpm run create-tenant -- --slug=<slug> --name="..." --host=<slug>.app.tu-dominio.com --crawler-base-url=https://sitio-del-cliente.com`
+4. Los 4 comandos de `harvest`/`ingest-knowledge`/backfills de arriba, con
+   `--tenant=<slug>`.
+5. Sección 8, con el subdominio de ESE cliente.
+
+No hace falta reconstruir ni reiniciar `api`/`web` — ambos ya sirven a
+cualquier tenant que exista en la base.
 
 ## 8. Generar y entregar el enlace de activación
 
@@ -244,13 +291,15 @@ Esto es lo único que el cliente necesita para "prender" el chat en su
 sitio — un `<script>` de una línea, nada de credenciales ni configuración
 de su lado.
 
-1. Entra a `https://app.tu-dominio.com/admin` con la cuenta owner.
+1. Entra a `https://acr.app.tu-dominio.com/admin` con la cuenta owner
+   (el subdominio de ESE cliente — cada tenant se administra entrando por
+   su propio subdominio).
 2. Baja hasta el panel **"Instalar el chat en tu marketplace"** — ya
    genera el snippet correcto solo con el dominio en el que estás parado
-   (`app.tu-dominio.com`), por ejemplo:
+   (`acr.app.tu-dominio.com`), por ejemplo:
 
    ```html
-   <script src="https://app.tu-dominio.com/embed.js" defer></script>
+   <script src="https://acr.app.tu-dominio.com/embed.js" defer></script>
    ```
 
    > Antes de este despliegue, ese panel armaba el enlace con el dominio
@@ -266,8 +315,8 @@ de su lado.
    plantilla global, para que aparezca en todo el sitio).
 4. Crea además su cuenta `admin` desde `/admin/users` (o `soporte`, según
    quién la vaya a usar) y entrégale por separado el segundo enlace, el
-   del panel: `https://app.tu-dominio.com/admin/login` — este es de uso
-   interno del cliente, no se pega en ningún sitio.
+   del panel: `https://acr.app.tu-dominio.com/admin/login` — este es de
+   uso interno del cliente, no se pega en ningún sitio.
 
 Con eso, el cliente recibe exactamente los "dos enlaces" que promete la
 propuesta comercial (sección 6, "Cómo se entrega"): uno que activa el chat
@@ -288,17 +337,22 @@ nginx. Si cambia una migración nueva, aplícala a mano (paso 3) ANTES del
 
 ## 10. Checklist final antes de avisarle al cliente
 
-- [ ] Los 9 archivos de `database/migrations/` aplicados sin error.
-- [ ] `CORS_ORIGINS` incluye `https://prefieroacr.com` (o el dominio real
-      donde se va a pegar el widget).
+- [ ] Los 10 archivos de `database/migrations/` aplicados sin error.
+- [ ] `NODE_ENV=production` en `.env` (activa la validación estricta de
+      CORS por tenant — sin esto, cualquier origen puede llamar la API).
+- [ ] El tenant del cliente creado (`create-tenant`) con su `host` y
+      `crawler-base-url` reales.
+- [ ] Si el widget se va a embeber en un sitio del cliente distinto de su
+      propio subdominio de panel, ese sitio está en `--extra-cors-origins`
+      del tenant (o se agregó después con un `UPDATE tenants`).
 - [ ] `https://api.tu-dominio.com/llm/health` responde `ok:true` para
       Qwen (y DeepSeek si se configuró).
-- [ ] Login de owner funciona en `https://app.tu-dominio.com/admin/login`.
-- [ ] `https://app.tu-dominio.com/embed.js` responde 200 (no 404/CORS).
-- [ ] Catálogo cargado (`pnpm run harvest` corrido sin `--limit`).
+- [ ] Login de owner funciona en `https://<slug>.app.tu-dominio.com/admin/login`.
+- [ ] `https://<slug>.app.tu-dominio.com/embed.js` responde 200 (no 404/CORS).
+- [ ] Catálogo cargado (`pnpm run harvest -- --tenant=<slug>` corrido sin `--limit`).
 - [ ] Embeddings de producto generados (`backfill-product-embeddings`
       corrido hasta que reporte `processed: 0`) y cuotas completadas
-      (`backfill-installments`).
+      (`backfill-installments`), ambos con `--tenant=<slug>`.
 - [ ] Cuenta `admin` creada para el cliente, con su contraseña entregada
       por un canal seguro (no por el mismo chat que se está activando).
 - [ ] El snippet de instalación probado en una página real de prueba

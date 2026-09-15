@@ -2,35 +2,35 @@ import { getPool } from '../pool.js';
 import { slugify } from '../slugify.js';
 import type { CategoryPathSegment, ProductUpsertInput, UpsertProductResult } from '../types.js';
 
-export async function upsertBrand(name: string): Promise<string> {
+export async function upsertBrand(tenantId: string, name: string): Promise<string> {
   const pool = getPool();
   const slug = slugify(name);
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO brands (name, slug) VALUES ($1, $2)
-     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+    `INSERT INTO brands (tenant_id, name, slug) VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id, slug) DO UPDATE SET name = EXCLUDED.name
      RETURNING id`,
-    [name, slug],
+    [tenantId, name, slug],
   );
   return result.rows[0].id;
 }
 
-export async function upsertSeller(name: string, slug: string): Promise<string> {
+export async function upsertSeller(tenantId: string, name: string, slug: string): Promise<string> {
   const pool = getPool();
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO sellers (name, slug) VALUES ($1, $2)
-     ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name
+    `INSERT INTO sellers (tenant_id, name, slug) VALUES ($1, $2, $3)
+     ON CONFLICT (tenant_id, slug) DO UPDATE SET name = EXCLUDED.name
      RETURNING id`,
-    [name, slug || slugify(name)],
+    [tenantId, name, slug || slugify(name)],
   );
   return result.rows[0].id;
 }
 
 /**
  * Crea (o reutiliza) la cadena completa de categorias de un breadcrumb,
- * usando la ruta acumulada como slug unico para no chocar entre categorias
- * de distinto padre que comparten nombre de hoja.
+ * usando la ruta acumulada como slug unico (por tenant) para no chocar
+ * entre categorias de distinto padre que comparten nombre de hoja.
  */
-export async function upsertCategoryPath(segments: CategoryPathSegment[]): Promise<string | null> {
+export async function upsertCategoryPath(tenantId: string, segments: CategoryPathSegment[]): Promise<string | null> {
   if (segments.length === 0) {
     return null;
   }
@@ -43,10 +43,10 @@ export async function upsertCategoryPath(segments: CategoryPathSegment[]): Promi
   for (const segment of segments) {
     cumulativeSlug = cumulativeSlug ? `${cumulativeSlug}/${segment.slug}` : segment.slug;
     const result: { rows: { id: string }[] } = await pool.query(
-      `INSERT INTO categories (name, slug, parent_id) VALUES ($1, $2, $3)
-       ON CONFLICT (slug) DO UPDATE SET name = EXCLUDED.name, parent_id = EXCLUDED.parent_id
+      `INSERT INTO categories (tenant_id, name, slug, parent_id) VALUES ($1, $2, $3, $4)
+       ON CONFLICT (tenant_id, slug) DO UPDATE SET name = EXCLUDED.name, parent_id = EXCLUDED.parent_id
        RETURNING id`,
-      [segment.name, cumulativeSlug, parentId],
+      [tenantId, segment.name, cumulativeSlug, parentId],
     );
     const newLeafId: string = result.rows[0].id;
     leafId = newLeafId;
@@ -56,11 +56,11 @@ export async function upsertCategoryPath(segments: CategoryPathSegment[]): Promi
   return leafId;
 }
 
-export async function upsertProduct(input: ProductUpsertInput): Promise<UpsertProductResult> {
+export async function upsertProduct(tenantId: string, input: ProductUpsertInput): Promise<UpsertProductResult> {
   const pool = getPool();
   const existing = await pool.query<{ id: string; content_hash: string | null }>(
-    'SELECT id, content_hash FROM products WHERE external_id = $1',
-    [input.externalId],
+    'SELECT id, content_hash FROM products WHERE tenant_id = $1 AND external_id = $2',
+    [tenantId, input.externalId],
   );
 
   const now = new Date();
@@ -68,14 +68,15 @@ export async function upsertProduct(input: ProductUpsertInput): Promise<UpsertPr
   if (existing.rows.length === 0) {
     const insert = await pool.query<{ id: string }>(
       `INSERT INTO products (
-         external_id, name, slug, description, url, image_url,
+         tenant_id, external_id, name, slug, description, url, image_url,
          brand_id, category_id, seller_id,
          price, original_price, discount_percentage,
          installment_value, installment_count, currency,
          content_hash, last_seen_at, last_scraped_at
-       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$17)
+       ) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$18)
        RETURNING id`,
       [
+        tenantId,
         input.externalId,
         input.name,
         input.slug,
@@ -152,22 +153,32 @@ export async function upsertProduct(input: ProductUpsertInput): Promise<UpsertPr
  * (se calcula client-side ahi) usando lo que si trae ya calculado la
  * tarjeta de una pagina de listado/categoria. Solo toca esas dos columnas
  * — nunca reescribe nombre/precio/categoria, que ya mantiene al dia la
- * cosecha normal (`upsertProduct`).
+ * cosecha normal (`upsertProduct`). El SKU solo es unico DENTRO de un
+ * tenant (dos tenants distintos pueden tener, cada uno, un producto con
+ * el mismo SKU en su sitio de origen) — sin filtrar por tenant_id aqui se
+ * arriesga actualizar el producto equivocado de otro cliente.
  */
-export async function updateInstallmentBySku(sku: string, installmentValue: number, installmentCount: number): Promise<boolean> {
+export async function updateInstallmentBySku(
+  tenantId: string,
+  sku: string,
+  installmentValue: number,
+  installmentCount: number,
+): Promise<boolean> {
   const pool = getPool();
   const result = await pool.query(
-    `UPDATE products SET installment_value = $2, installment_count = $3, updated_at = now()
-     WHERE external_id = $1`,
-    [sku, installmentValue, installmentCount],
+    `UPDATE products SET installment_value = $3, installment_count = $4, updated_at = now()
+     WHERE tenant_id = $1 AND external_id = $2`,
+    [tenantId, sku, installmentValue, installmentCount],
   );
   return (result.rowCount ?? 0) > 0;
 }
 
-/** Slugs de categoria ya conocidos (de la cosecha de productos) — son las paginas de listado que la segunda pasada visita para completar la cuota. */
-export async function listCategorySlugs(): Promise<string[]> {
+/** Slugs de categoria ya conocidos de ESTE tenant (de su propia cosecha de productos) — son las paginas de listado que la segunda pasada visita para completar la cuota. */
+export async function listCategorySlugs(tenantId: string): Promise<string[]> {
   const pool = getPool();
-  const result = await pool.query<{ slug: string }>('SELECT slug FROM categories ORDER BY slug');
+  const result = await pool.query<{ slug: string }>('SELECT slug FROM categories WHERE tenant_id = $1 ORDER BY slug', [
+    tenantId,
+  ]);
   return result.rows.map((row) => row.slug);
 }
 
@@ -187,13 +198,14 @@ async function insertPriceHistory(productId: string, input: ProductUpsertInput):
  * se queda pegado en `true` para siempre y el catalogo local se desincroniza
  * silenciosamente del real. Solo debe llamarse tras una cosecha SIN limite
  * (`--limit` deja fuera la mayoria del catalogo a proposito, marcarlo como
- * "desaparecido" seria un falso positivo masivo).
+ * "desaparecido" seria un falso positivo masivo) — y solo del tenant que
+ * se acaba de cosechar, nunca de todos a la vez.
  */
-export async function markStaleProductsInactive(seenBefore: Date): Promise<number> {
+export async function markStaleProductsInactive(tenantId: string, seenBefore: Date): Promise<number> {
   const pool = getPool();
-  const result = await pool.query(
-    'UPDATE products SET is_active = false WHERE is_active AND last_seen_at < $1',
-    [seenBefore],
-  );
+  const result = await pool.query('UPDATE products SET is_active = false WHERE tenant_id = $1 AND is_active AND last_seen_at < $2', [
+    tenantId,
+    seenBefore,
+  ]);
   return result.rowCount ?? 0;
 }

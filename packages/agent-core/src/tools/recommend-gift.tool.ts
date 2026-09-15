@@ -95,11 +95,11 @@ export function buildGiftClarifyingQuestion(args: GiftGateArgs): string {
  * `createRecommendProductsHandler`.
  */
 export function createRecommendGiftHandler(embed?: EmbedFn): ToolHandler<RecommendGiftArgs, RecommendProductsResult> {
-  return async (args) => {
+  return async (args, ctx) => {
     const searchText = args.interests ?? args.recipientDescription;
     const [literalCandidates, semanticMatches] = await Promise.all([
-      searchProducts({ text: searchText, categoryName: args.categoryName, maxPrice: args.budget, limit: 20 }),
-      safeSemanticMatches(searchText, embed),
+      searchProducts(ctx.tenantId, { text: searchText, categoryName: args.categoryName, maxPrice: args.budget, limit: 20 }),
+      safeSemanticMatches(ctx.tenantId, searchText, embed),
     ]);
 
     const candidates: RankingCandidate[] = mergeSemanticCandidates(literalCandidates, semanticMatches);

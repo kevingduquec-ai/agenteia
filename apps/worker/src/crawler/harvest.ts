@@ -5,6 +5,7 @@ import { politeFetch } from './http.js';
 import { discoverProductUrls } from './sitemap.js';
 
 export interface HarvestOptions {
+  tenantId: string;
   baseUrl: string;
   delayMs: number;
   limit?: number;
@@ -22,7 +23,7 @@ export interface HarvestSummary {
 }
 
 export async function runHarvest(options: HarvestOptions, onProgress?: (done: number, total: number) => void): Promise<HarvestSummary> {
-  const { baseUrl, delayMs } = options;
+  const { tenantId, baseUrl, delayMs } = options;
   const summary: HarvestSummary = {
     discovered: 0,
     processed: 0,
@@ -55,9 +56,9 @@ export async function runHarvest(options: HarvestOptions, onProgress?: (done: nu
       const slug = new URL(url).pathname.replace(/^\/p\//, '');
       const externalId = detail.sku || slug;
 
-      const brandId = detail.brandName ? await upsertBrand(detail.brandName) : null;
-      const categoryId = await upsertCategoryPath(detail.categoryPath);
-      const sellerId = detail.sellerName ? await upsertSeller(detail.sellerName, detail.sellerSlug ?? '') : null;
+      const brandId = detail.brandName ? await upsertBrand(tenantId, detail.brandName) : null;
+      const categoryId = await upsertCategoryPath(tenantId, detail.categoryPath);
+      const sellerId = detail.sellerName ? await upsertSeller(tenantId, detail.sellerName, detail.sellerSlug ?? '') : null;
 
       const hash = contentHash([
         detail.name,
@@ -69,7 +70,7 @@ export async function runHarvest(options: HarvestOptions, onProgress?: (done: nu
         detail.images[0],
       ]);
 
-      const result = await upsertProduct({
+      const result = await upsertProduct(tenantId, {
         externalId,
         name: detail.name,
         slug,
@@ -103,7 +104,7 @@ export async function runHarvest(options: HarvestOptions, onProgress?: (done: nu
   // completo) — probablemente descontinuado. Con `--limit` la mayoria del
   // catalogo queda fuera a proposito, marcarlo aqui seria un falso masivo.
   if (!options.limit) {
-    summary.deactivated = await markStaleProductsInactive(startedAt);
+    summary.deactivated = await markStaleProductsInactive(tenantId, startedAt);
   }
 
   await closePool();

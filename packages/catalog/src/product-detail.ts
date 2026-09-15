@@ -6,10 +6,10 @@ export interface ProductDetail extends ProductSummary {
   attributes: ProductAttributeRow[];
 }
 
-/** Resuelve un producto por id (UUID) o, si no es un id valido, por el nombre mas parecido — asi el tool sirve tanto si el LLM trae el id exacto (de una busqueda previa) como si solo tiene el nombre que escribio el usuario. */
-export async function resolveProduct(idOrName: string): Promise<ProductDetail | null> {
+/** Resuelve un producto por id (UUID) o, si no es un id valido, por el nombre mas parecido DENTRO del catalogo de `tenantId` — asi el tool sirve tanto si el LLM trae el id exacto (de una busqueda previa) como si solo tiene el nombre que escribio el usuario. */
+export async function resolveProduct(tenantId: string, idOrName: string): Promise<ProductDetail | null> {
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(idOrName);
-  const row = isUuid ? await getProductById(idOrName) : await findProductByName(idOrName);
+  const row = isUuid ? await getProductById(idOrName) : await findProductByName(tenantId, idOrName);
   if (!row) {
     return null;
   }
@@ -17,8 +17,8 @@ export async function resolveProduct(idOrName: string): Promise<ProductDetail | 
   return { ...toProductSummary(row), attributes };
 }
 
-export async function resolveProducts(idsOrNames: string[]): Promise<ProductDetail[]> {
-  const results = await Promise.all(idsOrNames.map((value) => resolveProduct(value)));
+export async function resolveProducts(tenantId: string, idsOrNames: string[]): Promise<ProductDetail[]> {
+  const results = await Promise.all(idsOrNames.map((value) => resolveProduct(tenantId, value)));
   return results.filter((product): product is ProductDetail => product !== null);
 }
 
@@ -28,12 +28,12 @@ export interface SimilarProductsInput {
 }
 
 /** Mismo tipo de producto (categoria) y rango de precio parecido (±40%) al de referencia — nunca inventa un criterio de "similar" mas alla de lo que el catalogo puede filtrar. */
-export async function findSimilarProducts({ productId, limit = 6 }: SimilarProductsInput): Promise<ProductSummary[]> {
+export async function findSimilarProducts(tenantId: string, { productId, limit = 6 }: SimilarProductsInput): Promise<ProductSummary[]> {
   const reference = await getProductById(productId);
   if (!reference) {
     return [];
   }
-  return searchProducts({
+  return searchProducts(tenantId, {
     categoryName: reference.categoryName ?? undefined,
     minPrice: reference.price * 0.6,
     maxPrice: reference.price * 1.4,
@@ -47,12 +47,15 @@ export interface CheaperAlternativesInput {
   limit?: number;
 }
 
-export async function findCheaperAlternatives({ productId, limit = 6 }: CheaperAlternativesInput): Promise<ProductSummary[]> {
+export async function findCheaperAlternatives(
+  tenantId: string,
+  { productId, limit = 6 }: CheaperAlternativesInput,
+): Promise<ProductSummary[]> {
   const reference = await getProductById(productId);
   if (!reference) {
     return [];
   }
-  return searchProducts({
+  return searchProducts(tenantId, {
     categoryName: reference.categoryName ?? undefined,
     maxPrice: reference.price,
     excludeProductId: reference.id,

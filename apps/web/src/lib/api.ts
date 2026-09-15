@@ -1,3 +1,5 @@
+import { tenantHeaders } from './tenant-header';
+
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
 export interface ApiChatMessage {
@@ -37,7 +39,7 @@ export interface ProductSummary {
 export async function startChatSession(anonymousSessionId: string, pageContext?: PageContext): Promise<StartSessionResponse> {
   const res = await fetch(`${API_BASE}/chat/session`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify({ anonymousSessionId, pageContext }),
   });
   if (!res.ok) {
@@ -61,7 +63,7 @@ export interface ConversationState {
 
 /** El widget la consulta cada pocos segundos mientras espera soporte — trae el hilo completo (incluye respuestas de un agente humano) y el status, para detectar cuando un agente resuelve/cierra/cancela y reiniciar el chat solo. */
 export async function getConversationState(conversationId: string): Promise<ConversationState> {
-  const res = await fetch(`${API_BASE}/chat/status?conversationId=${conversationId}`);
+  const res = await fetch(`${API_BASE}/chat/status?conversationId=${conversationId}`, { headers: tenantHeaders() });
   if (!res.ok) {
     throw new Error('No se pudo consultar el estado de la conversación.');
   }
@@ -72,7 +74,7 @@ export async function getConversationState(conversationId: string): Promise<Conv
 export async function rateConversation(conversationId: string, rating: number, comment?: string): Promise<void> {
   await fetch(`${API_BASE}/chat/rating`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify({ conversationId, rating, comment }),
   });
 }
@@ -80,7 +82,7 @@ export async function rateConversation(conversationId: string, rating: number, c
 export async function startNewConversation(sessionId: string): Promise<StartSessionResponse> {
   const res = await fetch(`${API_BASE}/chat/conversations/new`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify({ sessionId }),
   });
   if (!res.ok) {
@@ -111,7 +113,7 @@ export async function streamChatMessage(
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/chat/stream`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...tenantHeaders() },
     body: JSON.stringify({ conversationId, message, forceHumanSupport }),
     signal,
   });

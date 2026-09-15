@@ -7,7 +7,7 @@ export class KnowledgeService {
   private readonly logger = new Logger(KnowledgeService.name);
   private readonly embeddingProvider = new QwenEmbeddingProvider(loadQwenEmbeddingConfig());
 
-  async search(query: string, limit = 5): Promise<KnowledgeMatch[]> {
+  async search(tenantId: string, query: string, limit = 5): Promise<KnowledgeMatch[]> {
     const embed = this.embeddingProvider.isConfigured()
       ? async (text: string) => (await this.embeddingProvider.embed(text)).embedding
       : undefined;
@@ -16,6 +16,6 @@ export class KnowledgeService {
       this.logger.debug('QWEN_API_KEY no configurada: busqueda de conocimiento solo por texto completo.');
     }
 
-    return searchKnowledge(query, { limit, embed });
+    return searchKnowledge(tenantId, query, { limit, embed });
   }
 }

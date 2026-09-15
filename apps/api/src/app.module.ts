@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { MiddlewareConsumer, Module, type NestModule } from '@nestjs/common';
 import { APP_GUARD } from '@nestjs/core';
 import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller.js';
@@ -7,6 +7,7 @@ import { LlmModule } from './llm/llm.module.js';
 import { KnowledgeModule } from './knowledge/knowledge.module.js';
 import { ChatModule } from './chat/chat.module.js';
 import { AdminModule } from './admin/admin.module.js';
+import { TenantMiddleware } from './tenant/tenant.middleware.js';
 
 @Module({
   imports: [
@@ -22,4 +23,11 @@ import { AdminModule } from './admin/admin.module.js';
   controllers: [AppController],
   providers: [AppService, { provide: APP_GUARD, useClass: ThrottlerGuard }],
 })
-export class AppModule {}
+export class AppModule implements NestModule {
+  // Global: toda ruta necesita saber a que tenant pertenece antes de tocar
+  // cualquier dato (catalogo, conversaciones, cuentas admin) — mas seguro
+  // que aplicarlo ruta por ruta y arriesgar olvidar una.
+  configure(consumer: MiddlewareConsumer): void {
+    consumer.apply(TenantMiddleware).forRoutes('*');
+  }
+}

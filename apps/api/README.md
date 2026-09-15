@@ -22,7 +22,12 @@ negocio propia más allá de orquestar los paquetes (`@prefiero-ia/agent-core`,
     prompt injection sobre el contenido de `@prefiero-ia/rag`.
 - **`admin/`** — panel de administración, protegido por `AdminAuthGuard`
   (cookie de sesión + JWT). Tres roles (`owner` fijo por variables de
-  entorno, `admin`, `soporte`, ver `AdminUsersController`):
+  entorno y global entre todos los tenants; `admin`/`soporte` son filas
+  tenant-scoped en `admin_users`, ver `AdminUsersController`). El JWT
+  lleva el `tenantId` con el que se inició sesión — `AdminAuthGuard`
+  rechaza el token si no coincide con el tenant resuelto para la request
+  actual (evita reusar una sesión de un cliente contra el subdominio de
+  otro):
   - `admin/auth/*` — login/logout/sesión.
   - `admin/stats/*` — analítica en vivo (overview, top productos, demanda
     no atendida, desglose de intenciones, métricas de soporte).
@@ -37,10 +42,25 @@ negocio propia más allá de orquestar los paquetes (`@prefiero-ia/agent-core`,
 - **`llm/`** — `GET /llm/health` (estado de cada proveedor configurado),
   `POST /llm/chat` (llamada directa al gateway, sin pasar por el agente —
   para pruebas).
-- **`main.ts`** — bootstrap: helmet, cookie-parser, CORS (`CORS_ORIGINS`
-  en `.env` — sin configurar, acepta cualquier origen, cómodo en
-  desarrollo pero debe fijarse antes de producción), `ValidationPipe`
-  global.
+- **`tenant/`** — resuelve QUÉ cliente está detrás de cada request. Un
+  solo despliegue de esta API atiende a todos los tenants; ver
+  [`docs/MULTI-TENANCY.md`](../../docs/MULTI-TENANCY.md) para el diseño
+  completo.
+  - `tenant.middleware.ts` (`TenantMiddleware`, registrado global en
+    `AppModule`) — lee el header `X-Tenant-Host` (mandado por
+    `apps/web` en cada fetch, ver su propio README) y lo resuelve contra
+    `tenants.host`. En desarrollo, si no hay header o el host es
+    `localhost`/`127.0.0.1`, cae a `DEFAULT_TENANT_SLUG` o al único tenant
+    existente — para no romper el flujo local de siempre. Adjunta el
+    resultado a `request.tenant`.
+  - `current-tenant.decorator.ts` (`@CurrentTenant()`) — cómo los
+    controllers leen ese tenant ya resuelto.
+- **`main.ts`** — bootstrap: helmet, cookie-parser, `ValidationPipe`
+  global, y CORS dinámico por tenant: la lista de orígenes permitidos se
+  recalcula desde `tenants.host` + `tenants.extra_cors_origins` de cada
+  cliente (con cache de 60s), más `CORS_ORIGINS` en `.env` como lista
+  extra global. En desarrollo (`NODE_ENV != production`) se sigue
+  aceptando cualquier origen, igual que antes de multi-tenant.
 
 ## Desarrollo
 

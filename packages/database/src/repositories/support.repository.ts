@@ -10,6 +10,19 @@ export async function getConversationStatus(conversationId: string): Promise<Con
   return result.rows[0]?.status ?? null;
 }
 
+/**
+ * Confirma a que tenant pertenece una conversacion — usado por los
+ * controllers de soporte (`apps/api/src/admin/admin-support.controller.ts`)
+ * para verificar que un agente `admin`/`soporte` solo pueda leer/responder
+ * conversaciones de SU PROPIO tenant, nunca las de otro cliente aunque
+ * adivine o enumere un `conversationId` ajeno.
+ */
+export async function getConversationTenantId(conversationId: string): Promise<string | null> {
+  const pool = getPool();
+  const result = await pool.query<{ tenant_id: string }>('SELECT tenant_id FROM conversations WHERE id = $1', [conversationId]);
+  return result.rows[0]?.tenant_id ?? null;
+}
+
 /** Se llama cuando el Intent Router detecta HUMAN_SUPPORT por primera vez en una conversacion activa — a partir de aqui la IA deja de responder (ver AgentEngine) y el mensaje queda esperando a un agente real. `needs_support_at` queda fijo desde este momento — es contra lo que se mide el tiempo de respuesta real del equipo (ver `getSupportResponseStats`). */
 export async function markConversationNeedsSupport(conversationId: string): Promise<void> {
   const pool = getPool();
@@ -53,7 +66,7 @@ export interface SupportResponseStats {
  * afirmacion en el dashboard en vez de darla por hecho. `since` normalmente
  * es "hoy a medianoche" o "hace 7 dias" segun la ventana que pida el panel.
  */
-export async function getSupportResponseStats(since: Date): Promise<SupportResponseStats> {
+export async function getSupportResponseStats(tenantId: string, since: Date): Promise<SupportResponseStats> {
   const pool = getPool();
   const result = await pool.query<{ escalated: string; answered: string; avg_seconds: string | null }>(
     `SELECT
@@ -66,8 +79,8 @@ export async function getSupportResponseStats(since: Date): Promise<SupportRespo
        WHERE conversation_id = c.id AND role = 'support_agent' AND created_at > c.needs_support_at
        ORDER BY created_at ASC LIMIT 1
      ) resp ON true
-     WHERE c.needs_support_at >= $1`,
-    [since],
+     WHERE c.tenant_id = $1 AND c.needs_support_at >= $2`,
+    [tenantId, since],
   );
   const row = result.rows[0];
   return {
@@ -78,11 +91,14 @@ export async function getSupportResponseStats(since: Date): Promise<SupportRespo
 }
 
 /** Cuantas conversaciones distintas recibieron al menos un mensaje de un agente humano desde `since` — el contador de "chats atendidos" del dashboard del administrador. */
-export async function countConversationsHandledSince(since: Date): Promise<number> {
+export async function countConversationsHandledSince(tenantId: string, since: Date): Promise<number> {
   const pool = getPool();
   const result = await pool.query<{ count: string }>(
-    `SELECT count(DISTINCT conversation_id) FROM messages WHERE role = 'support_agent' AND created_at >= $1`,
-    [since],
+    `SELECT count(DISTINCT m.conversation_id)
+     FROM messages m
+     JOIN conversations c ON c.id = m.conversation_id
+     WHERE c.tenant_id = $1 AND m.role = 'support_agent' AND m.created_at >= $2`,
+    [tenantId, since],
   );
   return Number(result.rows[0].count);
 }
@@ -96,7 +112,7 @@ export interface SupportConversationSummary {
 }
 
 /** Bandeja de soporte (sección 41-46) — una fila por conversacion, con el ultimo mensaje como vista previa, mas reciente primero. */
-export async function listSupportConversations(statuses: ConversationStatus[]): Promise<SupportConversationSummary[]> {
+export async function listSupportConversations(tenantId: string, statuses: ConversationStatus[]): Promise<SupportConversationSummary[]> {
   const pool = getPool();
   const result = await pool.query<{
     conversation_id: string;
@@ -113,9 +129,9 @@ export async function listSupportConversations(statuses: ConversationStatus[]): 
        WHERE conversation_id = c.id AND role IN ('user', 'support_agent')
        ORDER BY created_at DESC LIMIT 1
      ) m ON true
-     WHERE c.status = ANY($1::text[])
+     WHERE c.tenant_id = $1 AND c.status = ANY($2::text[])
      ORDER BY COALESCE(m.created_at, c.created_at) DESC`,
-    [statuses],
+    [tenantId, statuses],
   );
   return result.rows.map((row) => ({
     conversationId: row.conversation_id,

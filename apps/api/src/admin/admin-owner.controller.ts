@@ -1,7 +1,8 @@
 import { Controller, Get, Query, UseGuards } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsIn, IsOptional } from 'class-validator';
-import { getImpactReport, getPool } from '@prefiero-ia/database';
+import { getImpactReport, getPool, type TenantRow } from '@prefiero-ia/database';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { LlmService } from '../llm/llm.service.js';
 import { AdminAuthGuard, OwnerOnlyGuard } from './admin-auth.guard.js';
 
@@ -33,10 +34,10 @@ export class AdminOwnerController {
   constructor(private readonly llmService: LlmService) {}
 
   @Get('impact')
-  async impact(@Query() query: ImpactQueryDto) {
+  async impact(@Query() query: ImpactQueryDto, @CurrentTenant() tenant: TenantRow) {
     const window = query.window ?? 'week';
     const days = IMPACT_WINDOWS[window];
-    const report = await getImpactReport(days);
+    const report = await getImpactReport(tenant.id, days);
     return { window, days, ...report };
   }
 

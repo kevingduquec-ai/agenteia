@@ -39,12 +39,12 @@ const MIN_VECTOR_SCORE = 0.55;
  * total queda acotada por la mas lenta de las dos en vez de la suma de
  * ambas, que es lo que mas le importa a una respuesta de chat en vivo.
  */
-export async function searchKnowledge(query: string, options: SearchKnowledgeOptions = {}): Promise<KnowledgeMatch[]> {
+export async function searchKnowledge(tenantId: string, query: string, options: SearchKnowledgeOptions = {}): Promise<KnowledgeMatch[]> {
   const limit = options.limit ?? 5;
 
   const [vectorResult, fulltextResult] = await Promise.allSettled([
-    searchByVector(query, limit, options.embed),
-    searchKnowledgeByFullText(query, limit),
+    searchByVector(tenantId, query, limit, options.embed),
+    searchKnowledgeByFullText(tenantId, query, limit),
   ]);
 
   // `Promise.allSettled` no debe tragarse un fallo del embedding en
@@ -79,6 +79,7 @@ export async function searchKnowledge(query: string, options: SearchKnowledgeOpt
 }
 
 async function searchByVector(
+  tenantId: string,
   query: string,
   limit: number,
   embed?: (text: string) => Promise<number[]>,
@@ -88,5 +89,5 @@ async function searchByVector(
   }
   const embedding = await embed(query);
   const vectorLiteral = `[${embedding.join(',')}]`;
-  return searchKnowledgeByVector(vectorLiteral, limit);
+  return searchKnowledgeByVector(tenantId, vectorLiteral, limit);
 }

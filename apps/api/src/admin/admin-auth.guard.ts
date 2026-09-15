@@ -10,7 +10,15 @@ declare module 'express' {
   }
 }
 
-/** Cualquier cuenta valida (admin o soporte) — deja al usuario autenticado en `request.adminUser` para que otros guards/controllers sepan el rol. */
+/**
+ * Cualquier cuenta valida (admin o soporte) — deja al usuario autenticado
+ * en `request.adminUser` para que otros guards/controllers sepan el rol.
+ * Ademas exige que el tenant del token coincida con el tenant que
+ * `TenantMiddleware` resolvio para ESTA peticion — sin esto, una sesion
+ * iniciada en el subdominio de un cliente seguiria siendo valida si se
+ * reusa (robada, o una pestaña vieja) contra el subdominio de otro
+ * cliente distinto.
+ */
 @Injectable()
 export class AdminAuthGuard implements CanActivate {
   constructor(private readonly authService: AdminAuthService) {}
@@ -24,6 +32,9 @@ export class AdminAuthGuard implements CanActivate {
     const payload = this.authService.verifyToken(token);
     if (!payload) {
       throw new UnauthorizedException('Sesion invalida o expirada.');
+    }
+    if (payload.tenantId !== request.tenant?.id) {
+      throw new UnauthorizedException('Sesion invalida para este cliente.');
     }
     request.adminUser = payload;
     return true;

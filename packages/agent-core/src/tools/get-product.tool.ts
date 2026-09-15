@@ -25,7 +25,7 @@ export interface GetProductResult {
   product?: ProductDetail;
 }
 
-export const getProductHandler: ToolHandler<GetProductArgs, GetProductResult> = async (args) => {
-  const product = await resolveProduct(args.productName);
+export const getProductHandler: ToolHandler<GetProductArgs, GetProductResult> = async (args, ctx) => {
+  const product = await resolveProduct(ctx.tenantId, args.productName);
   return product ? { found: true, product } : { found: false };
 };

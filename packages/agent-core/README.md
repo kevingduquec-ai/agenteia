@@ -21,7 +21,10 @@ hablarle al LLM directamente para responder un chat — todo pasa por aquí.
   respuesta final a partir de un resultado JSON verificado.
 - **`tool-registry.ts`** (`ToolRegistry`) — el único lugar donde el LLM
   puede pedir "ejecuta la tool X con estos argumentos". Nunca expone SQL,
-  shell ni URLs arbitrarias como tool.
+  shell ni URLs arbitrarias como tool. Multi-tenant: el registro se
+  construye una sola vez (con la función `embed`), pero cada `execute()`
+  recibe un `ToolContext = { tenantId }` aparte — así ningún tenant puede
+  quedarse "pegado" en el registro entre requests de clientes distintos.
 - **`catalog-tools.ts`** — arma el mapa `Intent → tool` (una tool real por
   cada intención de catálogo) y el prompt de extracción de cada una.
 - **`semantic-candidates.ts`** — combina candidatos de búsqueda literal
@@ -35,17 +38,33 @@ hablarle al LLM directamente para responder un chat — todo pasa por aquí.
   `recommend_products`, `recommend_gift`, `register_unmet_demand`. Cada
   archivo define su propio `ToolDefinition` (el schema que ve el LLM) y su
   `ToolHandler` (la función real que consulta `@prefiero-ia/catalog`/
-  `@prefiero-ia/database`).
+  `@prefiero-ia/database`). Todo handler recibe `(args, ctx: ToolContext)`
+  y pasa `ctx.tenantId` a cada llamada de catálogo/base de datos — jamás
+  filtra un resultado sin ese `tenantId`.
 
 ## Cómo se usa
 
 `apps/api/src/chat/chat.service.ts` crea un único `AgentEngine` (con el
 `LLMGateway` y, si hay proveedor de embeddings configurado, la función
-`embed`) y le delega cada mensaje entrante vía `run()`/`runStream()`.
+`embed`) y le delega cada mensaje entrante vía `run()`/`runStream()`,
+pasando el `tenantId` resuelto para esa request en `RunAgentInput`.
+
+## Multi-tenant: `ToolContext`
+
+`ToolHandler<TArgs, TResult> = (args: TArgs, ctx: ToolContext) => Promise<TResult>`,
+con `ToolContext = { tenantId: string }`. El `ToolRegistry` se construye
+una sola vez por proceso (no por tenant) — lo que cambia por request es
+el `tenantId` que se le pasa a `execute(call, ctx)`. Esto permite que un
+solo despliegue de `apps/api` atienda a todos los tenants sin necesitar
+una instancia de `AgentEngine`/`ToolRegistry` por cliente. Ver
+`docs/MULTI-TENANCY.md` para cómo se resuelve ese `tenantId` desde el
+header `X-Tenant-Host`.
 
 ## Convenciones a respetar si agregas una tool nueva
 
-1. Definir `ToolDefinition` + `ToolHandler` en `tools/<nombre>.tool.ts`.
+1. Definir `ToolDefinition` + `ToolHandler` en `tools/<nombre>.tool.ts`,
+   con la firma `(args, ctx: ToolContext) => ...` y usando `ctx.tenantId`
+   en cada consulta a `@prefiero-ia/catalog`/`@prefiero-ia/database`.
 2. Registrarla en `catalog-tools.ts` bajo su `Intent` correspondiente
    (agregar la intención a `intent.ts`/`CATALOG_DEPENDENT_INTENTS` si es
    nueva).

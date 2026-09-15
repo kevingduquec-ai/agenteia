@@ -2,6 +2,7 @@
 export * from './pool.js';
 export * from './slugify.js';
 export * from './types.js';
+export * from './repositories/tenant.repository.js';
 export * from './repositories/catalog.repository.js';
 export * from './repositories/product-search.repository.js';
 export * from './repositories/knowledge.repository.js';

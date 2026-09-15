@@ -10,7 +10,9 @@ import {
   getSupportResponseStats,
   getTopConsultedProducts,
   getUnmetDemandSummary,
+  type TenantRow,
 } from '@prefiero-ia/database';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { AdminAuthGuard, AdminOnlyGuard } from './admin-auth.guard.js';
 
 class RangeDto {
@@ -34,29 +36,33 @@ class RangeDto {
 // pedido explicito del usuario (sección 41-46 del documento maestro).
 // AdminOnlyGuard va DESPUES de AdminAuthGuard a proposito (necesita
 // request.adminUser, que pone el primero) — el rol "soporte" nunca debe
-// entrar aqui.
+// entrar aqui. Todo se filtra por el tenant de quien esta autenticado —
+// un admin de un cliente nunca ve las cifras de otro.
 @UseGuards(AdminAuthGuard, AdminOnlyGuard)
 @Controller('admin/stats')
 export class AdminStatsController {
   @Get('overview')
-  async overview() {
-    const [liveVisitors, conversations] = await Promise.all([countLiveVisitors(5), getConversationOverview()]);
+  async overview(@CurrentTenant() tenant: TenantRow) {
+    const [liveVisitors, conversations] = await Promise.all([
+      countLiveVisitors(tenant.id, 5),
+      getConversationOverview(tenant.id),
+    ]);
     return { liveVisitors, ...conversations };
   }
 
   @Get('top-products')
-  async topProducts(@Query() query: RangeDto) {
-    return getTopConsultedProducts(query.limit ?? 10, query.days ?? 7);
+  async topProducts(@Query() query: RangeDto, @CurrentTenant() tenant: TenantRow) {
+    return getTopConsultedProducts(tenant.id, query.limit ?? 10, query.days ?? 7);
   }
 
   @Get('unmet-demand')
-  async unmetDemand(@Query() query: RangeDto) {
-    return getUnmetDemandSummary(query.limit ?? 10, query.days ?? 30);
+  async unmetDemand(@Query() query: RangeDto, @CurrentTenant() tenant: TenantRow) {
+    return getUnmetDemandSummary(tenant.id, query.limit ?? 10, query.days ?? 30);
   }
 
   @Get('intent-breakdown')
-  async intentBreakdown(@Query() query: RangeDto) {
-    return getIntentBreakdown(query.days ?? 7);
+  async intentBreakdown(@Query() query: RangeDto, @CurrentTenant() tenant: TenantRow) {
+    return getIntentBreakdown(tenant.id, query.days ?? 7);
   }
 
   // Pedido explicito del usuario: "cuantos chats fueron atendidos por los
@@ -66,12 +72,12 @@ export class AdminStatsController {
   // medianoche del servidor hasta ahora, coherente con `conversationsToday`
   // de `overview`.
   @Get('support')
-  async support() {
+  async support(@CurrentTenant() tenant: TenantRow) {
     const sinceToday = startOfToday();
     const [handledToday, responseStats, ratingSummary] = await Promise.all([
-      countConversationsHandledSince(sinceToday),
-      getSupportResponseStats(sinceToday),
-      getRatingSummary(sinceToday),
+      countConversationsHandledSince(tenant.id, sinceToday),
+      getSupportResponseStats(tenant.id, sinceToday),
+      getRatingSummary(tenant.id, sinceToday),
     ]);
     return {
       handledToday,

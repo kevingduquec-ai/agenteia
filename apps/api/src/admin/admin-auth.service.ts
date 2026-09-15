@@ -19,20 +19,29 @@ export type AdminRole = 'owner' | 'admin' | 'soporte';
 export interface AdminTokenPayload {
   sub: string;
   role: AdminRole;
+  /**
+   * A que tenant quedo atado este login — para "admin"/"soporte" es
+   * siempre el suyo (viven en `admin_users.tenant_id`). Para "owner" es el
+   * tenant desde cuyo subdominio inicio sesion (el owner es global por
+   * variables de entorno, sin tenant propio) — para operar sobre otro
+   * cliente, inicia sesion de nuevo desde el subdominio de ESE cliente.
+   */
+  tenantId: string;
 }
 
 /**
  * Autenticacion del panel admin. Un solo "owner" fijo via variables de
- * entorno (bootstrap — alguien tiene que poder crear al resto) que puede
- * crear cuentas "admin" y "soporte" desde el panel (`admin_users`, ver
- * `AdminUsersController`): "admin" ve dashboards + bandeja de soporte,
- * "soporte" SOLO la bandeja, nunca analitica — pedido explicito del
- * usuario. Ninguna contraseña se guarda en texto plano, solo su hash
- * bcrypt.
+ * entorno (bootstrap — alguien tiene que poder crear al resto), superadmin
+ * de la plataforma: puede operar sobre cualquier tenant, y es quien crea
+ * cuentas "admin"/"soporte" DENTRO de un tenant especifico desde el panel
+ * (`admin_users`, ver `AdminUsersController`): "admin" ve dashboards +
+ * bandeja de soporte, "soporte" SOLO la bandeja, nunca analitica — pedido
+ * explicito del usuario. Ninguna contraseña se guarda en texto plano,
+ * solo su hash bcrypt.
  */
 @Injectable()
 export class AdminAuthService {
-  async validateCredentials(username: string, password: string): Promise<AdminRole | null> {
+  async validateCredentials(tenantId: string, username: string, password: string): Promise<AdminRole | null> {
     const ownerUsername = process.env.OWNER_USERNAME;
     const ownerPasswordHash = process.env.OWNER_PASSWORD_HASH;
 
@@ -44,7 +53,7 @@ export class AdminAuthService {
       return valid ? 'owner' : null;
     }
 
-    const managedUser = await findAdminUserByUsername(username);
+    const managedUser = await findAdminUserByUsername(tenantId, username);
     if (!managedUser) {
       await bcrypt.compare(password, DUMMY_HASH);
       return null;
@@ -53,8 +62,8 @@ export class AdminAuthService {
     return valid ? managedUser.role : null;
   }
 
-  issueToken(username: string, role: AdminRole): string {
-    return jwt.sign({ sub: username, role }, requireSecret(), { expiresIn: TOKEN_TTL_SECONDS });
+  issueToken(tenantId: string, username: string, role: AdminRole): string {
+    return jwt.sign({ sub: username, role, tenantId }, requireSecret(), { expiresIn: TOKEN_TTL_SECONDS });
   }
 
   verifyToken(token: string): AdminTokenPayload | null {

@@ -35,15 +35,16 @@ export interface RegisterUnmetDemandArgs {
 }
 
 export interface RegisterUnmetDemandContext {
+  tenantId: string;
   query: string;
   normalizedIntent: string;
   conversationId?: string | null;
 }
 
-/** El contexto (mensaje original, intencion, conversacion) lo fija el Agent Engine — el LLM solo aporta los datos que pudo extraer. */
+/** El contexto (tenant, mensaje original, intencion, conversacion) lo fija el Agent Engine — el LLM solo aporta los datos que pudo extraer. */
 export function createRegisterUnmetDemandHandler(context: RegisterUnmetDemandContext): ToolHandler<RegisterUnmetDemandArgs, { registered: true }> {
   return async (args) => {
-    await insertUnmetDemand({
+    await insertUnmetDemand(context.tenantId, {
       query: context.query,
       normalizedIntent: context.normalizedIntent,
       conversationId: context.conversationId,

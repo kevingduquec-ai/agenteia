@@ -14,15 +14,15 @@ export interface SessionResult {
  * constraint "sessions_anonymous_session_id_key"`, un 500 real para el
  * usuario). `ON CONFLICT ... DO UPDATE` hace la operacion atomica.
  */
-export async function getOrCreateSession(anonymousSessionId: string, pageContext?: unknown): Promise<SessionResult> {
+export async function getOrCreateSession(tenantId: string, anonymousSessionId: string, pageContext?: unknown): Promise<SessionResult> {
   const pool = getPool();
   const result = await pool.query<{ id: string }>(
-    `INSERT INTO sessions (anonymous_session_id, page_context)
-     VALUES ($1, $2::jsonb)
-     ON CONFLICT (anonymous_session_id) DO UPDATE
-       SET last_active_at = now(), page_context = COALESCE($2::jsonb, sessions.page_context)
+    `INSERT INTO sessions (tenant_id, anonymous_session_id, page_context)
+     VALUES ($1, $2, $3::jsonb)
+     ON CONFLICT (tenant_id, anonymous_session_id) DO UPDATE
+       SET last_active_at = now(), page_context = COALESCE($3::jsonb, sessions.page_context)
      RETURNING id`,
-    [anonymousSessionId, pageContext ? JSON.stringify(pageContext) : null],
+    [tenantId, anonymousSessionId, pageContext ? JSON.stringify(pageContext) : null],
   );
   return { id: result.rows[0].id };
 }
@@ -32,7 +32,7 @@ export interface ConversationResult {
 }
 
 /** Una sesion tiene una unica conversacion activa por ahora (alcanza para v1; el esquema soporta varias a futuro). */
-export async function getOrCreateConversation(sessionId: string): Promise<ConversationResult> {
+export async function getOrCreateConversation(tenantId: string, sessionId: string): Promise<ConversationResult> {
   const pool = getPool();
   const existing = await pool.query<{ id: string }>(
     'SELECT id FROM conversations WHERE session_id = $1 ORDER BY created_at DESC LIMIT 1',
@@ -42,18 +42,20 @@ export async function getOrCreateConversation(sessionId: string): Promise<Conver
     return { id: existing.rows[0].id };
   }
 
-  const insert = await pool.query<{ id: string }>('INSERT INTO conversations (session_id) VALUES ($1) RETURNING id', [
-    sessionId,
-  ]);
+  const insert = await pool.query<{ id: string }>(
+    'INSERT INTO conversations (tenant_id, session_id) VALUES ($1, $2) RETURNING id',
+    [tenantId, sessionId],
+  );
   return { id: insert.rows[0].id };
 }
 
 /** Fuerza una conversacion nueva y vacia — usado por "Nueva conversacion" en el chat. */
-export async function createConversation(sessionId: string): Promise<ConversationResult> {
+export async function createConversation(tenantId: string, sessionId: string): Promise<ConversationResult> {
   const pool = getPool();
-  const insert = await pool.query<{ id: string }>('INSERT INTO conversations (session_id) VALUES ($1) RETURNING id', [
-    sessionId,
-  ]);
+  const insert = await pool.query<{ id: string }>(
+    'INSERT INTO conversations (tenant_id, session_id) VALUES ($1, $2) RETURNING id',
+    [tenantId, sessionId],
+  );
   return { id: insert.rows[0].id };
 }
 

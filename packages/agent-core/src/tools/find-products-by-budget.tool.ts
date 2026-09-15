@@ -25,8 +25,8 @@ export interface FindProductsByBudgetArgs {
   categoryName?: string;
 }
 
-export const findProductsByBudgetHandler: ToolHandler<FindProductsByBudgetArgs, CatalogToolResult> = async (args) => {
-  const products = await searchProducts({
+export const findProductsByBudgetHandler: ToolHandler<FindProductsByBudgetArgs, CatalogToolResult> = async (args, ctx) => {
+  const products = await searchProducts(ctx.tenantId, {
     text: args.query,
     categoryName: args.categoryName,
     maxPrice: args.budget,

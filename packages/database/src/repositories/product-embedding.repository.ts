@@ -17,17 +17,21 @@ export async function upsertProductEmbedding(productId: string, vectorLiteral: s
   );
 }
 
-/** Productos activos que todavia no tienen embedding, o cuyo embedding quedo de un modelo distinto al actual — para el job de backfill (`apps/worker`). */
-export async function findProductsMissingEmbedding(model: string, limit: number): Promise<Array<{ id: string; name: string; description: string | null }>> {
+/** Productos activos de ESTE tenant que todavia no tienen embedding, o cuyo embedding quedo de un modelo distinto al actual — para el job de backfill (`apps/worker`). */
+export async function findProductsMissingEmbedding(
+  tenantId: string,
+  model: string,
+  limit: number,
+): Promise<Array<{ id: string; name: string; description: string | null }>> {
   const pool = getPool();
   const result = await pool.query<{ id: string; name: string; description: string | null }>(
     `SELECT p.id, p.name, p.description
      FROM products p
-     LEFT JOIN product_embeddings pe ON pe.product_id = p.id AND pe.model = $1
-     WHERE p.is_active AND pe.product_id IS NULL
+     LEFT JOIN product_embeddings pe ON pe.product_id = p.id AND pe.model = $2
+     WHERE p.tenant_id = $1 AND p.is_active AND pe.product_id IS NULL
      ORDER BY p.updated_at DESC
-     LIMIT $2`,
-    [model, limit],
+     LIMIT $3`,
+    [tenantId, model, limit],
   );
   return result.rows;
 }
@@ -38,17 +42,23 @@ export interface ProductVectorMatch {
   score: number;
 }
 
-/** Busqueda semantica pura — el llamador (packages/catalog) decide como mezclarla con la busqueda literal y con los filtros de precio/categoria. */
-export async function searchProductsByVector(vectorLiteral: string, limit: number): Promise<ProductVectorMatch[]> {
+/**
+ * Busqueda semantica pura, acotada al catalogo de UN tenant — sin este
+ * filtro, el chat de un cliente podria recomendar productos del catalogo
+ * de otro cliente por pura similitud de embedding. El llamador
+ * (packages/catalog) decide como mezclar esto con la busqueda literal y
+ * con los filtros de precio/categoria.
+ */
+export async function searchProductsByVector(tenantId: string, vectorLiteral: string, limit: number): Promise<ProductVectorMatch[]> {
   const pool = getPool();
   const result = await pool.query<{ product_id: string; score: string }>(
-    `SELECT pe.product_id, 1 - (pe.embedding <=> $1::vector) AS score
+    `SELECT pe.product_id, 1 - (pe.embedding <=> $2::vector) AS score
      FROM product_embeddings pe
      JOIN products p ON p.id = pe.product_id
-     WHERE p.is_active
-     ORDER BY pe.embedding <=> $1::vector
-     LIMIT $2`,
-    [vectorLiteral, limit],
+     WHERE p.tenant_id = $1 AND p.is_active
+     ORDER BY pe.embedding <=> $2::vector
+     LIMIT $3`,
+    [tenantId, vectorLiteral, limit],
   );
   return result.rows.map((row) => ({ productId: row.product_id, score: Number(row.score) }));
 }

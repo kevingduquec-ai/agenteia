@@ -1,9 +1,10 @@
-import { BadRequestException, Body, Controller, Get, Post, Query, Res } from '@nestjs/common';
+import { BadRequestException, Body, Controller, Get, NotFoundException, Post, Query, Res } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { Type } from 'class-transformer';
 import { IsBoolean, IsIn, IsOptional, IsString, IsUUID, MaxLength, MinLength, ValidateNested } from 'class-validator';
-import { RatingNotAllowedError } from '@prefiero-ia/database';
+import { getConversationTenantId, RatingNotAllowedError, type TenantRow } from '@prefiero-ia/database';
 import type { Response } from 'express';
+import { CurrentTenant } from '../tenant/current-tenant.decorator.js';
 import { ChatService } from './chat.service.js';
 
 const MAX_MESSAGE_LENGTH = 2000;
@@ -78,16 +79,16 @@ export class ChatController {
   constructor(private readonly chatService: ChatService) {}
 
   @Post('session')
-  async startSession(@Body() body: StartSessionDto) {
-    return this.chatService.startSession(body.anonymousSessionId, body.pageContext);
+  async startSession(@Body() body: StartSessionDto, @CurrentTenant() tenant: TenantRow) {
+    return this.chatService.startSession(tenant.id, body.anonymousSessionId, body.pageContext);
   }
 
   // El usuario puede reiniciar la conversacion cuando quiera (boton "Nueva
   // conversacion" en el chat) sin perder la sesion anonima ni el historial
   // anterior, que queda guardado bajo la conversacion vieja.
   @Post('conversations/new')
-  async newConversation(@Body() body: NewConversationDto) {
-    return this.chatService.startNewConversation(body.sessionId);
+  async newConversation(@Body() body: NewConversationDto, @CurrentTenant() tenant: TenantRow) {
+    return this.chatService.startNewConversation(tenant.id, body.sessionId);
   }
 
   // El chat consume tokens de pago por cada mensaje — un limite mas
@@ -95,8 +96,9 @@ export class ChatController {
   // proveedor de IA a punta de requests automatizados.
   @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post('message')
-  async sendMessage(@Body() body: SendMessageDto) {
-    return this.chatService.sendMessage(body.conversationId, body.message.trim(), body.forceHumanSupport);
+  async sendMessage(@Body() body: SendMessageDto, @CurrentTenant() tenant: TenantRow) {
+    await assertOwnedByTenant(body.conversationId, tenant.id);
+    return this.chatService.sendMessage(tenant.id, body.conversationId, body.message.trim(), body.forceHumanSupport);
   }
 
   // El widget lo consulta cada pocos segundos (sección: soporte humano) —
@@ -104,15 +106,16 @@ export class ChatController {
   // cancela la conversacion, para reiniciar el chat del cliente solo.
   // Barato (sin LLM), usa el limite global por defecto, no el estricto.
   @Get('status')
-  async status(@Query() query: ConversationStatusQueryDto) {
+  async status(@Query() query: ConversationStatusQueryDto, @CurrentTenant() tenant: TenantRow) {
+    await assertOwnedByTenant(query.conversationId, tenant.id);
     return this.chatService.getConversationState(query.conversationId);
   }
 
   // Barato (un solo INSERT, sin LLM) — el limite por defecto alcanza de sobra.
   @Post('rating')
-  async rate(@Body() body: RateConversationDto) {
+  async rate(@Body() body: RateConversationDto, @CurrentTenant() tenant: TenantRow) {
     try {
-      await this.chatService.rateConversation(body.conversationId, body.rating, body.comment);
+      await this.chatService.rateConversation(tenant.id, body.conversationId, body.rating, body.comment);
     } catch (error) {
       if (error instanceof RatingNotAllowedError) {
         throw new BadRequestException(error.message);
@@ -124,14 +127,15 @@ export class ChatController {
 
   @Throttle({ default: { limit: 15, ttl: 60_000 } })
   @Post('stream')
-  async stream(@Body() body: SendMessageDto, @Res() res: Response) {
+  async stream(@Body() body: SendMessageDto, @CurrentTenant() tenant: TenantRow, @Res() res: Response) {
+    await assertOwnedByTenant(body.conversationId, tenant.id);
     res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
     res.setHeader('Cache-Control', 'no-cache, no-transform');
     res.setHeader('Connection', 'keep-alive');
     res.flushHeaders();
 
     try {
-      for await (const chunk of this.chatService.streamMessage(body.conversationId, body.message.trim(), body.forceHumanSupport)) {
+      for await (const chunk of this.chatService.streamMessage(tenant.id, body.conversationId, body.message.trim(), body.forceHumanSupport)) {
         res.write(`data: ${JSON.stringify({ delta: chunk.delta, done: chunk.done, products: chunk.products })}\n\n`);
       }
     } catch {
@@ -139,5 +143,18 @@ export class ChatController {
     } finally {
       res.end();
     }
+  }
+}
+
+/**
+ * El chat es publico/sin autenticacion (el comprador es anonimo) — un
+ * `conversationId` es un UUID que igual podria pertenecer a OTRO tenant.
+ * Sin esta verificacion, alguien que adivine/reuse un UUID ajeno podria
+ * leer el estado o escribir mensajes en una conversacion de otro cliente.
+ */
+async function assertOwnedByTenant(conversationId: string, tenantId: string): Promise<void> {
+  const owner = await getConversationTenantId(conversationId);
+  if (owner !== tenantId) {
+    throw new NotFoundException('Esa conversación no existe.');
   }
 }

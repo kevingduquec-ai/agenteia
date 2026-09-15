@@ -55,6 +55,8 @@ Reglas:
 - Si el JSON trae "notFound" con nombres, dilo explicitamente para cada uno ("no encontré X") y sigue con lo que si encontraste en "found" — nunca dejes de mencionar un producto que no aparecio.`;
 
 export interface RunAgentInput {
+  /** Que catalogo/base de conocimiento/cuentas consultar — cada cliente (marketplace) es un tenant aislado del resto. */
+  tenantId: string;
   systemPrompt: string;
   history: ChatMessage[];
   userMessage: string;
@@ -236,7 +238,7 @@ export class AgentEngine {
       return null;
     }
     try {
-      const product = await resolveProductFromPageContext(input.pageContext);
+      const product = await resolveProductFromPageContext(input.tenantId, input.pageContext);
       return product ? buildPageContextNote(product) : null;
     } catch {
       return null;
@@ -290,7 +292,7 @@ export class AgentEngine {
 
     let toolResult: unknown;
     try {
-      toolResult = await registry.execute({ name: spec.name, arguments: toolCallArguments });
+      toolResult = await registry.execute({ name: spec.name, arguments: toolCallArguments }, { tenantId: input.tenantId });
     } catch {
       await this.registerUnmetDemand(intent, input);
       return { intent, content: CATALOG_EXTRACTION_FAILED_MESSAGE };
@@ -333,6 +335,7 @@ export class AgentEngine {
     registry.register(
       registerUnmetDemandToolDefinition,
       createRegisterUnmetDemandHandler({
+        tenantId: input.tenantId,
         query: input.userMessage,
         normalizedIntent: intent,
         conversationId: input.conversationId,
@@ -355,7 +358,7 @@ export class AgentEngine {
     }
 
     try {
-      await registry.execute({ name: REGISTER_UNMET_DEMAND_TOOL_NAME, arguments: toolCallArguments });
+      await registry.execute({ name: REGISTER_UNMET_DEMAND_TOOL_NAME, arguments: toolCallArguments }, { tenantId: input.tenantId });
     } catch {
       // Nunca debe romper la respuesta al usuario por un fallo al registrar analitica.
     }

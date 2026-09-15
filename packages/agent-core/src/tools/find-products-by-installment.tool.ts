@@ -35,8 +35,8 @@ export interface FindProductsByInstallmentArgs {
  * se queda sin cuota. Por eso, ante cero resultados, la nota es honesta
  * sobre esa posibilidad en vez de afirmar tajantemente "no existe nada".
  */
-export const findProductsByInstallmentHandler: ToolHandler<FindProductsByInstallmentArgs, CatalogToolResult> = async (args) => {
-  const products = await searchProducts({
+export const findProductsByInstallmentHandler: ToolHandler<FindProductsByInstallmentArgs, CatalogToolResult> = async (args, ctx) => {
+  const products = await searchProducts(ctx.tenantId, {
     text: args.query,
     categoryName: args.categoryName,
     maxInstallment: args.maxInstallment,

@@ -21,6 +21,7 @@ export interface SemanticMatch {
  * llamador sigue con lo que ya tenia de la busqueda literal.
  */
 export async function findSemanticProductMatches(
+  tenantId: string,
   queryText: string,
   embed: (text: string) => Promise<number[]>,
   limit = 20,
@@ -31,7 +32,7 @@ export async function findSemanticProductMatches(
   }
   const embedding = await embed(trimmed);
   const vectorLiteral = `[${embedding.join(',')}]`;
-  const matches = await searchProductsByVector(vectorLiteral, limit);
+  const matches = await searchProductsByVector(tenantId, vectorLiteral, limit);
   if (matches.length === 0) {
     return [];
   }

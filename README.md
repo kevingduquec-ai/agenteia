@@ -14,9 +14,11 @@ el nombre técnico, es un refactor aparte — decisión del equipo, no algo a
 hacer de pasada.
 
 Ver el documento maestro completo en [`docs/PRODUCT.md`](docs/PRODUCT.md),
-el checklist de construcción en [`docs/ROADMAP.md`](docs/ROADMAP.md), y el
+el checklist de construcción en [`docs/ROADMAP.md`](docs/ROADMAP.md), el
 manual de despliegue a producción en
-[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md).
+[`docs/DEPLOYMENT.md`](docs/DEPLOYMENT.md), y la arquitectura multi-tenant
+(una sola instalación atendiendo a varios clientes, distinguidos por URL)
+en [`docs/MULTI-TENANCY.md`](docs/MULTI-TENANCY.md).
 
 ## Stack
 

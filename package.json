@@ -17,6 +17,7 @@
     "dev:web": "pnpm --filter @prefiero-ia/web dev",
     "dev:api": "pnpm --filter @prefiero-ia/api start:dev",
     "dev:worker": "pnpm --filter @prefiero-ia/worker dev",
+    "create-tenant": "pnpm --filter @prefiero-ia/worker create-tenant",
     "harvest": "pnpm --filter @prefiero-ia/worker harvest",
     "backfill-installments": "pnpm --filter @prefiero-ia/worker backfill-installments",
     "ingest-knowledge": "pnpm --filter @prefiero-ia/worker ingest-knowledge",

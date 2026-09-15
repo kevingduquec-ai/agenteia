@@ -64,30 +64,31 @@ export class ChatService {
     this.embeddingProvider.isConfigured() ? async (text: string) => (await this.embeddingProvider.embed(text)).embedding : undefined,
   );
 
-  async startSession(anonymousSessionId: string, pageContext?: PageContext): Promise<StartSessionResult> {
-    const session = await getOrCreateSession(anonymousSessionId, pageContext);
-    const conversation = await getOrCreateConversation(session.id);
+  async startSession(tenantId: string, anonymousSessionId: string, pageContext?: PageContext): Promise<StartSessionResult> {
+    const session = await getOrCreateSession(tenantId, anonymousSessionId, pageContext);
+    const conversation = await getOrCreateConversation(tenantId, session.id);
     const history = await getRecentMessages(conversation.id, 30);
     return { sessionId: session.id, conversationId: conversation.id, history };
   }
 
   /** El usuario puede reiniciar la conversacion en cualquier momento — empieza una nueva, vacia, sin perder el historial anterior. */
-  async startNewConversation(sessionId: string): Promise<StartSessionResult> {
-    const conversation = await createConversation(sessionId);
+  async startNewConversation(tenantId: string, sessionId: string): Promise<StartSessionResult> {
+    const conversation = await createConversation(tenantId, sessionId);
     return { sessionId, conversationId: conversation.id, history: [] };
   }
 
   async sendMessage(
+    tenantId: string,
     conversationId: string,
     userMessage: string,
     forceHumanSupport?: boolean,
   ): Promise<{ content: string; notConfigured?: boolean; products?: ProductSummary[] }> {
-    const agentInput = await this.buildAgentInput(conversationId, userMessage, forceHumanSupport);
+    const agentInput = await this.buildAgentInput(tenantId, conversationId, userMessage, forceHumanSupport);
     try {
       const { intent, content, products } = await this.agentEngine.run(agentInput);
       this.logger.log(`intent=${intent} conversation=${conversationId}`);
       await addMessage(conversationId, 'assistant', content, intent);
-      await this.recordAnalyticsSafely(conversationId, userMessage, intent, products);
+      await this.recordAnalyticsSafely(tenantId, conversationId, userMessage, intent, products);
       return { content, products };
     } catch (error) {
       if (error instanceof LLMNotConfiguredError) {
@@ -99,11 +100,12 @@ export class ChatService {
   }
 
   async *streamMessage(
+    tenantId: string,
     conversationId: string,
     userMessage: string,
     forceHumanSupport?: boolean,
   ): AsyncGenerator<ChatStreamChunk, void, void> {
-    const agentInput = await this.buildAgentInput(conversationId, userMessage, forceHumanSupport);
+    const agentInput = await this.buildAgentInput(tenantId, conversationId, userMessage, forceHumanSupport);
     try {
       const generator = this.agentEngine.runStream(agentInput);
       let step = await generator.next();
@@ -114,7 +116,7 @@ export class ChatService {
       const { intent, content, products } = step.value;
       this.logger.log(`intent=${intent} conversation=${conversationId}`);
       await addMessage(conversationId, 'assistant', content || '(sin respuesta)', intent);
-      await this.recordAnalyticsSafely(conversationId, userMessage, intent, products);
+      await this.recordAnalyticsSafely(tenantId, conversationId, userMessage, intent, products);
       // Evento final extra con las cards de producto — el ultimo chunk de
       // texto ya pudo haber marcado done:true sin ellas (AgentEngine no
       // sabe de "cards", solo de texto); delta vacio no altera lo ya
@@ -133,8 +135,8 @@ export class ChatService {
   }
 
   /** Pedido explicito del usuario: calificar la atencion al final de la conversacion — visible solo para admin/owner en el panel (`GET /admin/stats/support`), nunca para soporte ni para el comprador. */
-  async rateConversation(conversationId: string, rating: number, comment?: string): Promise<void> {
-    await submitConversationRating(conversationId, rating, comment);
+  async rateConversation(tenantId: string, conversationId: string, rating: number, comment?: string): Promise<void> {
+    await submitConversationRating(tenantId, conversationId, rating, comment);
   }
 
   /** Estado que consulta el widget del cliente (polling) para pintar respuestas de soporte y detectar cuando un agente resuelve/cierra/cancela — ver `ChatController`. */
@@ -146,12 +148,17 @@ export class ChatService {
     return { status, messages };
   }
 
-  private async buildAgentInput(conversationId: string, userMessage: string, forceHumanSupport?: boolean): Promise<RunAgentInput> {
+  private async buildAgentInput(
+    tenantId: string,
+    conversationId: string,
+    userMessage: string,
+    forceHumanSupport?: boolean,
+  ): Promise<RunAgentInput> {
     await addMessage(conversationId, 'user', userMessage);
 
     const [history, knowledge, rawPageContext, conversationStatus] = await Promise.all([
       getRecentMessages(conversationId, HISTORY_LIMIT),
-      this.searchKnowledgeSafely(userMessage),
+      this.searchKnowledgeSafely(tenantId, userMessage),
       getPageContextForConversation(conversationId),
       getConversationStatus(conversationId),
       // "Visitantes en vivo" (panel /admin) depende de esto — sin tocar la
@@ -164,6 +171,7 @@ export class ChatService {
     const systemPrompt = context ? `${SYSTEM_PROMPT}\n\n${context}` : SYSTEM_PROMPT;
 
     return {
+      tenantId,
       systemPrompt,
       history: history.slice(0, -1).map((h): ChatMessage => ({ role: h.role === 'assistant' ? 'assistant' : 'user', content: h.content })),
       userMessage,
@@ -181,6 +189,7 @@ export class ChatService {
    * respondido y con su propio try/catch.
    */
   private async recordAnalyticsSafely(
+    tenantId: string,
     conversationId: string,
     userMessage: string,
     intent: Intent,
@@ -188,22 +197,22 @@ export class ChatService {
   ): Promise<void> {
     try {
       if (products?.length) {
-        await recordProductImpressions(conversationId, products.map((p) => p.id));
+        await recordProductImpressions(tenantId, conversationId, products.map((p) => p.id));
       }
       if (CATALOG_DEPENDENT_INTENTS.has(intent)) {
-        await recordSearchEvent({ conversationId, query: userMessage, intent, resultCount: products?.length ?? 0 });
+        await recordSearchEvent(tenantId, { conversationId, query: userMessage, intent, resultCount: products?.length ?? 0 });
       }
     } catch (error) {
       this.logger.warn(`Analitica fallo, se ignora: ${error instanceof Error ? error.message : error}`);
     }
   }
 
-  private async searchKnowledgeSafely(query: string) {
+  private async searchKnowledgeSafely(tenantId: string, query: string) {
     try {
       const embed = this.embeddingProvider.isConfigured()
         ? async (text: string) => (await this.embeddingProvider.embed(text)).embedding
         : undefined;
-      return await searchKnowledge(query, { limit: KNOWLEDGE_LIMIT, embed });
+      return await searchKnowledge(tenantId, query, { limit: KNOWLEDGE_LIMIT, embed });
     } catch (error) {
       this.logger.warn(`Busqueda de conocimiento fallo, se continua sin contexto: ${error instanceof Error ? error.message : error}`);
       return [];

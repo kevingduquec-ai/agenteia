@@ -209,8 +209,8 @@ const SEARCH_SYNONYMS: Record<string, string[]> = {
  * palabra generica que no aparece literalmente en ningun producto no debe
  * tumbar toda la busqueda.
  */
-export async function searchProducts(filters: ProductSearchFilters): Promise<ProductRow[]> {
-  const rows = await runProductSearch(filters, true);
+export async function searchProducts(tenantId: string, filters: ProductSearchFilters): Promise<ProductRow[]> {
+  const rows = await runProductSearch(tenantId, filters, true);
   if (rows.length > 0 || (!filters.categoryName && !filters.brandName)) {
     return rows;
   }
@@ -230,13 +230,13 @@ export async function searchProducts(filters: ProductSearchFilters): Promise<Pro
   if (!hasOtherSignal) {
     return rows;
   }
-  return runProductSearch({ ...filters, categoryName: undefined, brandName: undefined }, false);
+  return runProductSearch(tenantId, { ...filters, categoryName: undefined, brandName: undefined }, false);
 }
 
-async function runProductSearch(filters: ProductSearchFilters, applyCategoryAndBrand: boolean): Promise<ProductRow[]> {
+async function runProductSearch(tenantId: string, filters: ProductSearchFilters, applyCategoryAndBrand: boolean): Promise<ProductRow[]> {
   const pool = getPool();
-  const conditions: string[] = ['p.is_active'];
-  const values: unknown[] = [];
+  const conditions: string[] = ['p.is_active', 'p.tenant_id = $1'];
+  const values: unknown[] = [tenantId];
   // "0::numeric" y no un "0" a secas: Postgres interpreta un entero
   // constante en ORDER BY, incluso entre parentesis, como referencia
   // posicional a una columna del SELECT ("ORDER BY position 0 is not in
@@ -339,6 +339,13 @@ async function runProductSearch(filters: ProductSearchFilters, applyCategoryAndB
   return result.rows.map(mapRow);
 }
 
+/**
+ * Sin filtro de tenant a proposito: el `id` es un UUID interno que solo
+ * un caller que ya resolvio ese producto (dentro de su propio tenant)
+ * puede tener — no viaja nunca desde afuera sin haber pasado antes por
+ * una busqueda ya scopeada. Igual que antes, no filtra `is_active` (ver
+ * comentario de `findProductByName`).
+ */
 export async function getProductById(id: string): Promise<ProductRow | null> {
   const pool = getPool();
   const result = await pool.query<ProductRawRow>(`${PRODUCT_SELECT} WHERE p.id = $1`, [id]);
@@ -354,10 +361,13 @@ export async function getProductsByIds(ids: string[]): Promise<ProductRow[]> {
   return result.rows.map(mapRow);
 }
 
-/** El slug es el mismo segmento de la URL real (`/p/<slug>`) — usado para resolver el contexto de pagina (sección 33-34: si el usuario abre el chat desde una ficha de producto, se sabe cual sin que lo repita). */
-export async function getProductBySlug(slug: string): Promise<ProductRow | null> {
+/** El slug es el mismo segmento de la URL real (`/p/<slug>`) — usado para resolver el contexto de pagina (sección 33-34: si el usuario abre el chat desde una ficha de producto, se sabe cual sin que lo repita). Un slug solo es unico DENTRO de un tenant, asi que si hace falta filtrar por tenant_id — dos tenants distintos pueden tener cada uno un producto en `/p/mismo-slug`. */
+export async function getProductBySlug(tenantId: string, slug: string): Promise<ProductRow | null> {
   const pool = getPool();
-  const result = await pool.query<ProductRawRow>(`${PRODUCT_SELECT} WHERE p.slug = $1 LIMIT 1`, [slug]);
+  const result = await pool.query<ProductRawRow>(`${PRODUCT_SELECT} WHERE p.tenant_id = $1 AND p.slug = $2 LIMIT 1`, [
+    tenantId,
+    slug,
+  ]);
   return result.rows[0] ? mapRow(result.rows[0]) : null;
 }
 
@@ -372,12 +382,12 @@ export async function getProductBySlug(slug: string): Promise<ProductRow | null>
  * que nunca existio — la decision de que hacer con un producto inactivo es
  * del llamador, no de esta funcion de resolucion.
  */
-export async function findProductByName(name: string): Promise<ProductRow | null> {
+export async function findProductByName(tenantId: string, name: string): Promise<ProductRow | null> {
   const pool = getPool();
   const result = await pool.query<ProductRawRow>(
-    `${PRODUCT_SELECT} WHERE ${unaccentIlike('p.name', 1)} OR similarity(unaccent(p.name), unaccent($2)) > 0.3
-     ORDER BY p.is_active DESC, unaccent(p.name) <-> unaccent($2) LIMIT 1`,
-    [`%${name}%`, name],
+    `${PRODUCT_SELECT} WHERE p.tenant_id = $1 AND (${unaccentIlike('p.name', 2)} OR similarity(unaccent(p.name), unaccent($3)) > 0.3)
+     ORDER BY p.is_active DESC, unaccent(p.name) <-> unaccent($3) LIMIT 1`,
+    [tenantId, `%${name}%`, name],
   );
   return result.rows[0] ? mapRow(result.rows[0]) : null;
 }
@@ -401,29 +411,29 @@ export async function getProductAttributes(productId: string): Promise<ProductAt
   }));
 }
 
-export async function listCategories(limit = 200): Promise<Array<{ name: string; slug: string }>> {
+export async function listCategories(tenantId: string, limit = 200): Promise<Array<{ name: string; slug: string }>> {
   const pool = getPool();
   const result = await pool.query<{ name: string; slug: string }>(
-    'SELECT DISTINCT c.name, c.slug FROM categories c JOIN products p ON p.category_id = c.id WHERE p.is_active ORDER BY c.name LIMIT $1',
-    [limit],
+    'SELECT DISTINCT c.name, c.slug FROM categories c JOIN products p ON p.category_id = c.id WHERE p.tenant_id = $1 AND p.is_active ORDER BY c.name LIMIT $2',
+    [tenantId, limit],
   );
   return result.rows;
 }
 
-export async function listBrands(limit = 200): Promise<Array<{ name: string; slug: string }>> {
+export async function listBrands(tenantId: string, limit = 200): Promise<Array<{ name: string; slug: string }>> {
   const pool = getPool();
   const result = await pool.query<{ name: string; slug: string }>(
-    'SELECT DISTINCT b.name, b.slug FROM brands b JOIN products p ON p.brand_id = b.id WHERE p.is_active ORDER BY b.name LIMIT $1',
-    [limit],
+    'SELECT DISTINCT b.name, b.slug FROM brands b JOIN products p ON p.brand_id = b.id WHERE p.tenant_id = $1 AND p.is_active ORDER BY b.name LIMIT $2',
+    [tenantId, limit],
   );
   return result.rows;
 }
 
-export async function listSellers(limit = 200): Promise<Array<{ name: string; slug: string }>> {
+export async function listSellers(tenantId: string, limit = 200): Promise<Array<{ name: string; slug: string }>> {
   const pool = getPool();
   const result = await pool.query<{ name: string; slug: string }>(
-    'SELECT DISTINCT s.name, s.slug FROM sellers s JOIN products p ON p.seller_id = s.id WHERE p.is_active ORDER BY s.name LIMIT $1',
-    [limit],
+    'SELECT DISTINCT s.name, s.slug FROM sellers s JOIN products p ON p.seller_id = s.id WHERE p.tenant_id = $1 AND p.is_active ORDER BY s.name LIMIT $2',
+    [tenantId, limit],
   );
   return result.rows;
 }

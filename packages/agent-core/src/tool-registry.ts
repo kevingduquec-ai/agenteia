@@ -1,6 +1,11 @@
 import type { ToolCall, ToolDefinition } from '@prefiero-ia/llm';
 
-export type ToolHandler<TArgs = Record<string, unknown>, TResult = unknown> = (args: TArgs) => Promise<TResult>;
+/** Contexto de ejecucion que todo handler de catalogo recibe ademas de sus argumentos — hoy solo el tenant (que catalogo/base de conocimiento consultar), pensado para crecer sin tener que volver a cambiar la firma de cada tool. */
+export interface ToolContext {
+  tenantId: string;
+}
+
+export type ToolHandler<TArgs = Record<string, unknown>, TResult = unknown> = (args: TArgs, ctx: ToolContext) => Promise<TResult>;
 
 interface RegisteredTool {
   definition: ToolDefinition;
@@ -35,11 +40,11 @@ export class ToolRegistry {
       .filter((def): def is ToolDefinition => def !== undefined);
   }
 
-  async execute(call: Pick<ToolCall, 'name' | 'arguments'>): Promise<unknown> {
+  async execute(call: Pick<ToolCall, 'name' | 'arguments'>, ctx: ToolContext): Promise<unknown> {
     const tool = this.tools.get(call.name);
     if (!tool) {
       throw new Error(`Tool no registrada: "${call.name}"`);
     }
-    return tool.handler(call.arguments);
+    return tool.handler(call.arguments, ctx);
   }
 }
