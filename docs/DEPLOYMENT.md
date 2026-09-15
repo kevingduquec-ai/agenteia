@@ -247,6 +247,10 @@ docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
   pnpm run harvest -- --tenant=acr                 # catálogo completo
 
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
+  pnpm run add-knowledge-source -- --tenant=acr \
+    --url=https://prefieroacr.com/preguntas-frecuentes   # repetir por cada página de FAQ/garantía/envíos/políticas
+
+docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
   pnpm run ingest-knowledge -- --tenant=acr        # FAQ, garantía, envíos, etc.
 
 docker compose -f docker-compose.prod.yml --env-file .env run --rm worker \
@@ -278,8 +282,10 @@ Todo lo de arriba, pero sin repetir los pasos 1-6 (el servidor, Docker,
    — puedes ir agregando `-d` a un mismo certificado o pedir uno nuevo por
    cliente, cualquiera de los dos funciona con nginx.
 3. `pnpm run create-tenant -- --slug=<slug> --name="..." --host=<slug>.app.tu-dominio.com --crawler-base-url=https://sitio-del-cliente.com`
-4. Los 4 comandos de `harvest`/`ingest-knowledge`/backfills de arriba, con
-   `--tenant=<slug>`.
+4. Los comandos de `harvest`/`add-knowledge-source`/`ingest-knowledge`/
+   backfills de arriba, con `--tenant=<slug>` (y una URL por cada página de
+   FAQ/garantía/envíos/políticas de ESE cliente en `add-knowledge-source`
+   — nunca las de Prefiero ACR+, cada cliente tiene su propio contenido).
 5. Sección 8, con el subdominio de ESE cliente.
 
 No hace falta reconstruir ni reiniciar `api`/`web` — ambos ya sirven a

@@ -96,19 +96,42 @@ pnpm run create-tenant -- --slug=acr --name="Prefiero ACR+" \
 pnpm run harvest -- --tenant=acr
 pnpm run backfill-installments -- --tenant=acr
 pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=acr
+
+# Registrar SUS páginas de FAQ/garantía/envíos/políticas — una vez por
+# página (ver "Base de conocimiento por tenant" abajo) — y luego ingestar
+pnpm run add-knowledge-source -- --tenant=acr --url=https://sitio-del-cliente.com/preguntas-frecuentes
 pnpm run ingest-knowledge -- --tenant=acr
 ```
 
 Ver `docs/DEPLOYMENT.md` para cómo se traduce esto a subdominios reales
 con DNS/TLS en producción.
 
+## Base de conocimiento por tenant
+
+Cada tenant tiene su propia lista de páginas/endpoints a ingestar en la
+tabla `tenant_knowledge_sources` (`packages/database/src/repositories/
+knowledge-source.repository.ts`) — reemplaza la lista estática que antes
+vivía en código (`apps/worker/src/knowledge/sources.ts`, ya eliminado) y
+que siempre traía el contenido de Prefiero ACR+ sin importar a qué
+cliente se le corriera `ingest-knowledge`.
+
+`pnpm run add-knowledge-source -- --tenant=<slug> --url=<página>` registra
+una fuente (idempotente: repetirla con la misma URL actualiza en vez de
+duplicar). Acepta `--kind=frequent-questions-api` + `--source-url=` +
+`--headers='{"..."}'` para el mismo caso especial que ya manejaba
+`accordion-parser.ts` (una API JSON que arma el acordeón de FAQ, en vez de
+una página HTML con `<h2>`). Después de registrar todas las páginas de un
+cliente, `pnpm run ingest-knowledge -- --tenant=<slug>` las recorre igual
+que antes — el parseo/chunking/embeddings no cambiaron, solo de dónde sale
+la lista de páginas a visitar. La migración `0011_tenant_knowledge_sources.sql`
+sembró las 14 fuentes que ya tenía `prefiero-acr`, así que su
+`ingest-knowledge` sigue trayendo exactamente lo mismo que antes de este
+cambio.
+
 ## Limitaciones conocidas, no resueltas en esta ronda
 
-- **Fuentes de la base de conocimiento** (`apps/worker/src/knowledge/sources.ts`)
-  siguen siendo una lista estática de URLs de `prefieroacr.com` — para un
-  segundo cliente real, hay que editar ese archivo (o convertirlo en
-  configuración por tenant) antes de correr `ingest-knowledge` para él.
-- El **owner no tiene una UI para crear tenants** todavía — `create-tenant`
-  es un comando de CLI, no un botón en `/admin`. Suficiente para el
-  volumen actual (Qubit da de alta cada cliente a mano), pero valdría la
-  pena una pantalla si el número de clientes crece.
+- El **owner no tiene una UI para crear tenants ni para registrar sus
+  fuentes de conocimiento** todavía — `create-tenant`/`add-knowledge-source`
+  son comandos de CLI, no botones en `/admin`. Suficiente para el volumen
+  actual (Qubit da de alta cada cliente a mano), pero valdría la pena una
+  pantalla si el número de clientes crece.

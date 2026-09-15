@@ -14,6 +14,7 @@
     "predev:api": "pnpm run build:core",
     "preharvest": "pnpm run build:database",
     "preingest-knowledge": "pnpm run build:database && pnpm run build:llm",
+    "preadd-knowledge-source": "pnpm run build:database",
     "dev:web": "pnpm --filter @prefiero-ia/web dev",
     "dev:api": "pnpm --filter @prefiero-ia/api start:dev",
     "dev:worker": "pnpm --filter @prefiero-ia/worker dev",
@@ -21,6 +22,7 @@
     "harvest": "pnpm --filter @prefiero-ia/worker harvest",
     "backfill-installments": "pnpm --filter @prefiero-ia/worker backfill-installments",
     "ingest-knowledge": "pnpm --filter @prefiero-ia/worker ingest-knowledge",
+    "add-knowledge-source": "pnpm --filter @prefiero-ia/worker add-knowledge-source",
     "build:apps": "pnpm run build:core && pnpm --filter @prefiero-ia/api build && pnpm --filter @prefiero-ia/web build && pnpm --filter @prefiero-ia/worker build",
     "docker:up": "docker compose up -d",
     "docker:down": "docker compose down"

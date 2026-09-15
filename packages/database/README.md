@@ -40,6 +40,13 @@ repositorio de este paquete.
     `knowledge_chunks`/`knowledge_embeddings` y sus dos búsquedas
     (`searchKnowledgeByVector`, `searchKnowledgeByFullText`), ambas
     filtradas por `tenantId`.
+  - `knowledge-source.repository.ts` — `listKnowledgeSourcesByTenant`/
+    `addKnowledgeSource`: QUÉ páginas/endpoints ingesta cada tenant (FAQ,
+    garantía, envíos, políticas...) — tabla `tenant_knowledge_sources`.
+    Reemplaza la vieja lista estática que vivía hardcodeada en
+    `apps/worker/src/knowledge/sources.ts` (siempre traía el contenido de
+    Prefiero ACR+ sin importar el tenant); ver "Base de conocimiento por
+    tenant" en `docs/MULTI-TENANCY.md`.
   - `chat.repository.ts` — sesiones anónimas, conversaciones, mensajes,
     todo bajo `tenantId` (sesiones/conversaciones tienen la columna;
     mensajes cuelgan de la conversación ya filtrada).

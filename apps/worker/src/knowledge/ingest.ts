@@ -1,6 +1,7 @@
 import {
   closePool,
   getChunksWithoutEmbeddings,
+  listKnowledgeSourcesByTenant,
   replaceKnowledgeChunks,
   upsertKnowledgeDocument,
   upsertKnowledgeEmbedding,
@@ -11,7 +12,6 @@ import { contentHash } from '../crawler/hash.js';
 import { politeFetch } from '../crawler/http.js';
 import { chunkSection } from './chunk.js';
 import { parseKnowledgePage, type KnowledgePage } from './page-parser.js';
-import { KNOWLEDGE_SOURCES } from './sources.js';
 
 export interface IngestOptions {
   tenantId: string;
@@ -19,6 +19,8 @@ export interface IngestOptions {
 }
 
 export interface IngestSummary {
+  /** Cuantas fuentes tenia configuradas este tenant (0 = nada que ingestar, ver `pnpm run add-knowledge-source`). */
+  sourcesConfigured: number;
   pagesProcessed: number;
   documentsChanged: number;
   chunksWritten: number;
@@ -28,7 +30,9 @@ export interface IngestSummary {
 }
 
 export async function runKnowledgeIngest(options: IngestOptions): Promise<IngestSummary> {
+  const sources = await listKnowledgeSourcesByTenant(options.tenantId);
   const summary: IngestSummary = {
+    sourcesConfigured: sources.length,
     pagesProcessed: 0,
     documentsChanged: 0,
     chunksWritten: 0,
@@ -37,10 +41,10 @@ export async function runKnowledgeIngest(options: IngestOptions): Promise<Ingest
     errors: [],
   };
 
-  for (const source of KNOWLEDGE_SOURCES) {
+  for (const source of sources) {
     const sourceUrl = source.sourceUrl ?? source.url;
     try {
-      const body = await politeFetch(source.url, options.delayMs, source.headers);
+      const body = await politeFetch(source.url, options.delayMs, source.headers ?? undefined);
       const page: KnowledgePage = source.kind === 'frequent-questions-api' ? parseFrequentQuestionsApi(body) : parseKnowledgePage(body);
 
       if (page.sections.length === 0) {

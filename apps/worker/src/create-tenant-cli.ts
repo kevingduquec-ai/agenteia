@@ -55,6 +55,8 @@ try {
   console.log(`  pnpm run harvest -- --tenant=${tenant.slug}`);
   console.log(`  pnpm run backfill-installments -- --tenant=${tenant.slug}`);
   console.log(`  pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=${tenant.slug}`);
+  console.log(`  pnpm run add-knowledge-source -- --tenant=${tenant.slug} --url=<pagina de FAQ/garantia/envios...>  (repetir por cada pagina)`);
+  console.log(`  pnpm run ingest-knowledge -- --tenant=${tenant.slug}`);
 } catch (error) {
   if (error instanceof Error && 'code' in error && (error as { code: string }).code === '23505') {
     console.error(`Ya existe un tenant con ese slug o ese host.`);

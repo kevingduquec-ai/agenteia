@@ -12,6 +12,7 @@
     "harvest": "tsx src/crawler/harvest-cli.ts",
     "backfill-installments": "tsx src/crawler/backfill-installments-cli.ts",
     "ingest-knowledge": "tsx src/knowledge/ingest-cli.ts",
+    "add-knowledge-source": "tsx src/knowledge/add-source-cli.ts",
     "backfill-product-embeddings": "tsx src/embeddings/backfill-cli.ts"
   },
   "dependencies": {

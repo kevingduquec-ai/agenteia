@@ -27,6 +27,7 @@ pnpm run harvest -- --tenant=acr              # catálogo completo
 pnpm run backfill-installments -- --limit=3 --tenant=acr   # prueba acotada
 pnpm run backfill-installments -- --tenant=acr              # todas las categorías conocidas
 
+pnpm run add-knowledge-source -- --tenant=acr --url=https://sitio-del-cliente.com/preguntas-frecuentes
 pnpm run ingest-knowledge -- --tenant=acr
 
 pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=acr
@@ -43,8 +44,9 @@ pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=ac
   cliente equivocado por accidente).
 - **`create-tenant-cli.ts`** — entrada de `pnpm run create-tenant`: alta
   de un cliente nuevo (`@prefiero-ia/database`'s `createTenant`). Es el
-  único onboarding soportado hoy — no hay UI de admin para esto todavía
-  (ver "Limitaciones conocidas" en `docs/MULTI-TENANCY.md`).
+  único onboarding soportado hoy junto con `add-knowledge-source-cli.ts`
+  (abajo) — no hay UI de admin para esto todavía (ver "Limitaciones
+  conocidas" en `docs/MULTI-TENANCY.md`).
 
 ## `src/crawler/` — Catalog Harvester
 
@@ -93,22 +95,30 @@ pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=ac
 
 ## `src/knowledge/` — Knowledge Base / RAG
 
-- **`sources.ts`** — las páginas institucionales reales de ACR+ a
-  ingestar (FAQ, quién es Prefiero, crédito, garantía, devoluciones,
-  envíos, privacidad, cookies) — enlazadas desde el footer del sitio real,
-  no URLs inventadas. **Limitación conocida**: sigue siendo una lista
-  estática de URLs de `prefieroacr.com` — para un segundo cliente real
-  hay que editar este archivo (o convertirlo en configuración por
-  tenant) antes de correr `ingest-knowledge -- --tenant=<otro>` (ver
-  `docs/MULTI-TENANCY.md`).
+- **`add-source-cli.ts`** — entrada de `pnpm run add-knowledge-source`:
+  registra para un tenant una página/endpoint a ingestar
+  (`@prefiero-ia/database`'s `addKnowledgeSource`, tabla
+  `tenant_knowledge_sources`). Reemplaza la vieja lista estática que vivía
+  hardcodeada en este mismo directorio (`sources.ts`, eliminado) — cada
+  tenant tiene ahora su propia lista de páginas de FAQ/garantía/envíos/
+  políticas, en vez de que todos compartan las de Prefiero ACR+. Ver
+  "Base de conocimiento por tenant" en `docs/MULTI-TENANCY.md`.
 - **`page-parser.ts`** / **`accordion-parser.ts`** — extraen el contenido
   real de cada página (algunas son acordeones de preguntas/respuestas).
+  `accordion-parser.ts` también expone `FREQUENT_QUESTIONS_API_URL`/
+  `FREQUENT_QUESTIONS_API_HEADERS`, el caso especial de creditoacr.com
+  (API JSON en vez de HTML con `<h2>`) — se registran para un tenant con
+  `add-knowledge-source -- --kind=frequent-questions-api --source-url=...
+  --headers=...`.
 - **`chunk.ts`** — divide cada página en chunks por sección/pregunta, con
   fallback a dividir por oración/palabra si una página no usa `<p>` por
   párrafo (nunca guarda un chunk gigante).
-- **`ingest.ts`** / **`ingest-cli.ts`** — guarda los documentos/chunks
+- **`ingest.ts`** / **`ingest-cli.ts`** — lee las fuentes del tenant
+  (`listKnowledgeSourcesByTenant`), guarda los documentos/chunks
   (`@prefiero-ia/database`) y calcula el embedding faltante de cada uno
-  si hay `QWEN_API_KEY` configurada (no repite los que ya lo tienen).
+  si hay `QWEN_API_KEY` configurada (no repite los que ya lo tienen). Si
+  el tenant no tiene ninguna fuente registrada, `sourcesConfigured: 0` en
+  el resumen — no es un error, pero no ingesta nada.
 
 ## `src/embeddings/`
 
