@@ -243,3 +243,68 @@ export interface SystemHealth {
 export function getSystemHealth(): Promise<SystemHealth> {
   return adminFetch('/admin/owner/health');
 }
+
+// --- Gestion de tenants/clientes y su base de conocimiento (solo owner) ---
+
+export interface TenantRow {
+  id: string;
+  slug: string;
+  name: string;
+  host: string;
+  crawlerBaseUrl: string;
+  extraCorsOrigins: string | null;
+  maxAdminSeats: number;
+  maxSupportSeats: number;
+  isActive: boolean;
+}
+
+export interface CreateTenantInput {
+  slug: string;
+  name: string;
+  host: string;
+  crawlerBaseUrl: string;
+  extraCorsOrigins?: string;
+  maxAdminSeats?: number;
+  maxSupportSeats?: number;
+}
+
+export function listTenants(): Promise<TenantRow[]> {
+  return adminFetch('/admin/tenants');
+}
+
+export function createTenant(input: CreateTenantInput): Promise<{ ok: boolean; tenant: TenantRow }> {
+  return adminPost('/admin/tenants', input);
+}
+
+export type KnowledgeSourceKind = 'heading' | 'frequent-questions-api';
+
+export interface TenantKnowledgeSource {
+  id: string;
+  tenantId: string;
+  url: string;
+  kind: KnowledgeSourceKind;
+  sourceUrl: string | null;
+  headers: Record<string, string> | null;
+}
+
+export interface AddKnowledgeSourceInput {
+  url: string;
+  kind?: KnowledgeSourceKind;
+  sourceUrl?: string;
+  headers?: Record<string, string>;
+}
+
+export function listTenantKnowledgeSources(tenantId: string): Promise<TenantKnowledgeSource[]> {
+  return adminFetch(`/admin/tenants/${tenantId}/knowledge-sources`);
+}
+
+export function addTenantKnowledgeSource(
+  tenantId: string,
+  input: AddKnowledgeSourceInput,
+): Promise<{ ok: boolean; source: TenantKnowledgeSource }> {
+  return adminPost(`/admin/tenants/${tenantId}/knowledge-sources`, input);
+}
+
+export function deleteTenantKnowledgeSource(tenantId: string, sourceId: string): Promise<{ ok: boolean }> {
+  return adminDelete(`/admin/tenants/${tenantId}/knowledge-sources/${sourceId}`);
+}

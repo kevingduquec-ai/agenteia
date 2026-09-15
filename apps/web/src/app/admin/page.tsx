@@ -133,6 +133,12 @@ export default function AdminDashboardPage() {
           {role === 'owner' && (
             <>
               <Link
+                href="/admin/tenants"
+                className="rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition hover:border-violet-400 hover:bg-violet-50"
+              >
+                Clientes
+              </Link>
+              <Link
                 href="/admin/impact"
                 className="rounded-full border border-violet-200 bg-white px-4 py-2 text-sm font-medium text-violet-700 shadow-sm transition hover:border-violet-400 hover:bg-violet-50"
               >

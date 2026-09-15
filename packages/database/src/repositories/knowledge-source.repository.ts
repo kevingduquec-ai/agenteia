@@ -57,9 +57,9 @@ export interface AddKnowledgeSourceInput {
 
 /**
  * Alta de una fuente de conocimiento para un tenant (onboarding de un
- * cliente nuevo, ver `pnpm run add-knowledge-source`). Idempotente:
- * correrla otra vez con la misma URL actualiza kind/source_url/headers en
- * vez de duplicar la fila.
+ * cliente nuevo, ver `pnpm run add-knowledge-source` y `AdminTenantsController`).
+ * Idempotente: correrla otra vez con la misma URL actualiza
+ * kind/source_url/headers en vez de duplicar la fila.
  */
 export async function addKnowledgeSource(tenantId: string, input: AddKnowledgeSourceInput): Promise<TenantKnowledgeSourceRow> {
   const pool = getPool();
@@ -71,4 +71,11 @@ export async function addKnowledgeSource(tenantId: string, input: AddKnowledgeSo
     [tenantId, input.url, input.kind, input.sourceUrl ?? null, input.headers ? JSON.stringify(input.headers) : null],
   );
   return toKnowledgeSourceRow(result.rows[0]);
+}
+
+/** Baja de una fuente (ej. una URL que ya no existe en el sitio del cliente). Devuelve false si esa fuente no existia para ese tenant — nunca borra la de otro. */
+export async function deleteKnowledgeSource(tenantId: string, id: string): Promise<boolean> {
+  const pool = getPool();
+  const result = await pool.query('DELETE FROM tenant_knowledge_sources WHERE id = $1 AND tenant_id = $2', [id, tenantId]);
+  return result.rowCount !== null && result.rowCount > 0;
 }
