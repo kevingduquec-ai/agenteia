@@ -1,0 +1,70 @@
+name: CI
+
+# Corre en cada push a master y en cada PR — hasta ahora nada ejecutaba
+# los 232 tests agregados el 14 sep 2026 (ver packages/*/vitest.config.ts)
+# mas alla de una corrida manual; sin esto un cambio que rompe algo puede
+# llegar a master sin que nadie se entere.
+on:
+  push:
+    branches: [master]
+  pull_request:
+
+# Si se empuja dos veces seguido a la misma rama/PR, cancela la corrida
+# vieja en vez de dejarlas competir por runners.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test-and-build:
+    runs-on: ubuntu-latest
+
+    # pgvector/pgvector, no "postgres" a secas: los tests de
+    # packages/database (integracion real, ver scripts/reset-test-db.mjs)
+    # necesitan las extensiones vector/pg_trgm/unaccent — misma imagen que
+    # docker-compose.yml usa en desarrollo.
+    services:
+      postgres:
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: prefiero
+          POSTGRES_PASSWORD: prefiero
+          POSTGRES_DB: prefiero_ia
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U prefiero"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      # reset-test-db.mjs deriva "prefiero_ia_test" de esta URL (crea la
+      # base desde cero y aplica las 11 migraciones antes de cada corrida
+      # de tests) — ver packages/database/package.json "pretest".
+      DATABASE_URL: postgresql://prefiero:prefiero@localhost:5432/prefiero_ia
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - run: pnpm install --frozen-lockfile
+
+      # Construye TODO (packages + las 3 apps) antes de correr tests: los
+      # paquetes se importan entre si por su dist/ compilado (ver
+      # package.json "main" de cada uno), asi que tiene que existir antes
+      # de que vitest resuelva esos imports.
+      - run: pnpm run build:apps
+
+      # Corre la suite de cada paquete/app que tenga un script "test"
+      # (pnpm -r --if-present) — packages/database resetea y migra su
+      # propia base de test antes de correr, vía su hook "pretest".
+      - run: pnpm run test
