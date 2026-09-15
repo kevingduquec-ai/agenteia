@@ -44,14 +44,13 @@ describe('rankProducts', () => {
     expect(ranked.needMatch).toBe(1);
   });
 
-  it('needMatch NO normaliza tildes — una palabra pedida sin tilde no matchea la misma palabra con tilde en el catalogo', () => {
-    // A diferencia de product-search.repository (que usa unaccent() en SQL)
-    // y de rag/search.ts, scoreNeedMatch compara texto crudo — un "need"
-    // extraido por el LLM sin tilde no encuentra "Portátil" con tilde. Vale
-    // la pena tenerlo presente si el needMatch (30% del score) empieza a
-    // rendir mal para busquedas en español con acentos.
+  it('needMatch normaliza tildes — una palabra pedida sin tilde SI matchea la misma palabra con tilde en el catalogo', () => {
+    // Mismo criterio que product-search.repository (unaccent() en SQL) y
+    // rag/search.ts — un "need" extraido por el LLM sin tilde (comun en
+    // extraccion de texto libre) debe encontrar "Portátil" con tilde en el
+    // catalogo real, o el 30% del score (needMatch) se degrada sin motivo.
     const [ranked] = rankProducts({ need: 'portatil gamer' }, [candidate({ product: product({ name: 'Portátil Gámer LOQ' }) })]);
-    expect(ranked.needMatch).toBe(0);
+    expect(ranked.needMatch).toBe(1);
   });
 
   it('needMatch: ninguna palabra relevante presente da needMatch 0', () => {

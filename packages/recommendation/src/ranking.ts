@@ -91,12 +91,25 @@ export function rankProducts(criteria: RankingCriteria, candidates: RankingCandi
     .sort((a, b) => b.score - a.score);
 }
 
+// Misma normalizacion de tildes que ya usa product-search.repository.ts
+// (`synonymVariants`) y rag/search.ts — sin esto, un "need" extraido por
+// el LLM sin tilde (ej. "portatil") nunca matcheaba "Portátil" en el
+// catalogo, degradando needMatch (30% del score) sin motivo real.
+function normalizeText(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[̀-ͯ]/g, '');
+}
+
 function scoreNeedMatch(need: string | undefined, product: ProductSummary): number {
-  const words = (need ?? '').toLowerCase().split(/\s+/).filter((w) => w.length > 2);
+  const words = normalizeText(need ?? '')
+    .split(/\s+/)
+    .filter((w) => w.length > 2);
   if (words.length === 0) {
     return 0.6;
   }
-  const haystack = `${product.name} ${product.categoryName ?? ''} ${product.brandName ?? ''}`.toLowerCase();
+  const haystack = normalizeText(`${product.name} ${product.categoryName ?? ''} ${product.brandName ?? ''}`);
   const matches = words.filter((word) => haystack.includes(word)).length;
   return matches / words.length;
 }
