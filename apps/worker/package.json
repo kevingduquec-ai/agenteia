@@ -14,6 +14,7 @@
     "ingest-knowledge": "tsx src/knowledge/ingest-cli.ts",
     "add-knowledge-source": "tsx src/knowledge/add-source-cli.ts",
     "backfill-product-embeddings": "tsx src/embeddings/backfill-cli.ts",
+    "report-miscategorized": "tsx src/reports/miscategorized-products-cli.ts",
     "test": "vitest run",
     "test:watch": "vitest"
   },

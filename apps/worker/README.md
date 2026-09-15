@@ -83,7 +83,15 @@ pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=ac
   conocidos (`listCategorySlugs()`, de la cosecha normal) y actualiza
   `installment_value`/`installment_count` por SKU. Cobertura parcial
   (~64% del catálogo) — un producto cuyo SKU nunca aparece en la carga
-  inicial de ninguna categoría visitada se queda sin cuota.
+  inicial de ninguna categoría visitada se queda sin cuota. **Verificado
+  en vivo (14 sep 2026) que este límite no es corregible sin más
+  ingeniería inversa**: el botón "Siguiente" de una página de categoría
+  SÍ trae productos distintos, pero sin cambiar la URL ni disparar ningún
+  request HTTP observable equivalente a una API de paginación — misma
+  limitación ya documentada para `/productos` en el README original de
+  esta fase. Traer más del 64% requeriría automatizar un navegador real
+  (Playwright) para hacer clic en "Siguiente" repetidamente, no un fetch
+  plano — cambio de arquitectura del crawler, no una mejora puntual.
 - **`http.ts`** — `politeFetch()`: un solo request en vuelo, con pausa
   mínima entre peticiones (`CRAWLER_DELAY_MS`). Antes de operar este
   crawler de forma recurrente/permanente sobre `prefieroacr.com` debe
@@ -130,6 +138,30 @@ pnpm --filter @prefiero-ia/worker run backfill-product-embeddings -- --tenant=ac
   embebe — los dos campos que un comprador real describe con sus propias
   palabras, a diferencia de marca/categoría que son más para filtros
   exactos.
+
+## `src/reports/`
+
+- **`miscategorized-products.ts`** / **`miscategorized-products-cli.ts`**
+  — `pnpm run report-miscategorized -- --tenant=acr`: reporte de **solo
+  lectura**, nunca cambia nada. La categorización mala viene del propio
+  sitio de origen (ACR+), no es algo que este crawler pueda corregir sin
+  inventar una taxonomía propia — pedido explícito del usuario: "solo
+  reportar, no tocar código". Reusa los mismos grupos de sinónimos ya
+  validados en `product-search.repository.ts` como señal de "de qué
+  categoría es este producto de verdad", filtrando los falsos positivos
+  ya conocidos en este catálogo (combos con regalo `"+ ..."`, accesorios
+  legítimos "para celular" como cargadores/fundas, y "portátil" como
+  adjetivo genérico — el mismo caso que ese archivo ya documentaba y por
+  el que decidió no perseguir esto con reglas de texto). Corrida real
+  contra el catálogo de Prefiero ACR+ (14 sep 2026, ~1.785 productos
+  activos): de 77 candidatos en la primera versión (dominada por esos
+  falsos positivos) a **1 solo candidato ambiguo** tras el filtro — la
+  categorización mala detectable por coincidencia de texto es rara en
+  este catálogo; los casos reales conocidos (ej. el "Combo Teclado" bajo
+  "Computadores" que menciona `product-search.repository.ts`) se
+  encontraron navegando el sitio, no con este tipo de heurístico.
+  Resultado: candidatos a **revisar manualmente**, nunca "errores
+  confirmados" — es insumo para que Qubit se lo reporte a ACR+.
 
 ## `src/catalog/`, `src/indexing/`
 

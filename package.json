@@ -23,6 +23,7 @@
     "backfill-installments": "pnpm --filter @prefiero-ia/worker backfill-installments",
     "ingest-knowledge": "pnpm --filter @prefiero-ia/worker ingest-knowledge",
     "add-knowledge-source": "pnpm --filter @prefiero-ia/worker add-knowledge-source",
+    "report-miscategorized": "pnpm --filter @prefiero-ia/worker report-miscategorized",
     "build:apps": "pnpm run build:core && pnpm --filter @prefiero-ia/api build && pnpm --filter @prefiero-ia/web build && pnpm --filter @prefiero-ia/worker build",
     "test": "pnpm -r --if-present run test",
     "docker:up": "docker compose up -d",
