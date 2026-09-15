@@ -9,13 +9,19 @@
   "scripts": {
     "build": "tsc -p tsconfig.json",
     "dev": "tsc -p tsconfig.json --watch",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:db:reset": "node scripts/reset-test-db.mjs",
+    "pretest": "pnpm run test:db:reset",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "pg": "^8.13.1"
   },
   "devDependencies": {
     "@types/pg": "^8.11.10",
-    "typescript": "^5.7.0"
+    "dotenv": "^16.4.7",
+    "typescript": "^5.7.0",
+    "vitest": "^4.1.2"
   }
 }

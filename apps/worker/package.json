@@ -13,7 +13,9 @@
     "backfill-installments": "tsx src/crawler/backfill-installments-cli.ts",
     "ingest-knowledge": "tsx src/knowledge/ingest-cli.ts",
     "add-knowledge-source": "tsx src/knowledge/add-source-cli.ts",
-    "backfill-product-embeddings": "tsx src/embeddings/backfill-cli.ts"
+    "backfill-product-embeddings": "tsx src/embeddings/backfill-cli.ts",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@prefiero-ia/database": "workspace:*",
@@ -26,6 +28,7 @@
   "devDependencies": {
     "tsx": "^4.19.0",
     "typescript": "^5.7.0",
-    "@types/node": "^22.10.0"
+    "@types/node": "^22.10.0",
+    "vitest": "^4.1.2"
   }
 }
